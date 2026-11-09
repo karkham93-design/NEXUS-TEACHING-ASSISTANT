@@ -1,0 +1,9 @@
+{
+  "name": "NEXUS AI Teaching Assistant",
+  "description": "An interactive AI teaching assistant dedicated to the Uganda National Examinations Board (UNEB - https://uneb.ac.ug/) curriculum for Primary (PLE) and Secondary (UCE/UACE) levels, featuring syllabus lessons, visual blueprints, past paper simulators, and national educational updates.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

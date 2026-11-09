@@ -1,0 +1,432 @@
+.prompt-bar {
+  position: relative;
+  width: 100%;
+  max-width: var(--pb-w, 100%);
+  margin: 0 auto;
+  font-family: inherit;
+  color: var(--pb-ink, #f5f5f5);
+  user-select: none;
+}
+
+.prompt-bar__menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--pb-menu, #1f2937);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), 0 0 20px rgba(239, 68, 68, 0.12);
+  padding: 8px;
+  z-index: 50;
+  backdrop-filter: blur(14px);
+  animation: pb-fade-in 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.prompt-bar__menu[data-kind="branched"] {
+  max-height: 460px;
+  padding: 10px;
+}
+
+.prompt-bar__menu::-webkit-scrollbar {
+  width: 5px;
+}
+
+.prompt-bar__menu::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.prompt-bar__menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+}
+
+.prompt-bar__menu::-webkit-scrollbar-thumb:hover {
+  background: rgba(239, 68, 68, 0.5);
+}
+
+@keyframes pb-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.prompt-bar__glow {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.18);
+  pointer-events: none;
+  transition: top 0.15s ease, height 0.15s ease, opacity 0.15s ease;
+  z-index: 1;
+}
+
+.prompt-bar__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  border-radius: 8px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  z-index: 2;
+  transition: background 0.1s ease;
+}
+
+.prompt-bar__row:hover,
+.prompt-bar__row[aria-selected="true"] {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.prompt-bar__row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ef4444;
+  flex-shrink: 0;
+}
+
+.prompt-bar__row-name {
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.prompt-bar__row-desc {
+  font-size: 11px;
+  color: #94a3b8;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-bar__row-tag {
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  margin-left: auto;
+}
+
+.prompt-bar__row-check {
+  color: #ef4444;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.prompt-bar__row-check[data-on] {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.prompt-bar__empty {
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* Effort Slider in Menu */
+.prompt-bar__effort-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 4px;
+}
+
+.prompt-bar__effort-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.prompt-bar__effort-level {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ef4444;
+}
+
+.prompt-bar__effort-help {
+  color: #64748b;
+  cursor: help;
+}
+
+.prompt-bar__effort-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #64748b;
+  padding: 0 8px 6px;
+}
+
+.prompt-bar__effort-track {
+  position: relative;
+  height: 28px;
+  margin: 4px 8px 10px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  touch-action: none;
+  outline: none;
+}
+
+.prompt-bar__effort-track:focus-visible {
+  box-shadow: 0 0 0 2px #ef4444;
+}
+
+.prompt-bar__effort-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--pb-effort-fill, 50%);
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.4), #ef4444);
+  border-radius: 14px;
+  pointer-events: none;
+}
+
+.prompt-bar__effort-dot {
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.prompt-bar__effort-thumb {
+  position: absolute;
+  left: var(--pb-effort-x, 50%);
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: transform 0.1s ease;
+}
+
+/* Prompt Field Container */
+.prompt-bar__field {
+  position: relative;
+  background: var(--pb-bg, #18181b);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--pb-radius, 16px);
+  padding: 8px 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+}
+
+.prompt-bar__field:focus-within {
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.prompt-bar__sparks {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.prompt-bar__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  z-index: 2;
+}
+
+.prompt-bar__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: #e2e8f0;
+}
+
+.prompt-bar__chip-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-bar__chip-x {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+.prompt-bar__chip-x:hover {
+  color: #ef4444;
+}
+
+.prompt-bar__input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--pb-ink, #ffffff);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 22px;
+  resize: none;
+  outline: none;
+  padding: 2px 4px;
+  z-index: 2;
+}
+
+.prompt-bar__input::placeholder {
+  color: #64748b;
+}
+
+/* Bottom Bar within Input */
+.prompt-bar__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 2;
+}
+
+.prompt-bar__tool,
+.prompt-bar__pick {
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: #94a3b8;
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.prompt-bar__tool:hover,
+.prompt-bar__pick:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.prompt-bar__tool[data-on],
+.prompt-bar__pick[data-on] {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.prompt-bar__spacer {
+  flex: 1;
+}
+
+.prompt-bar__eq {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 12px;
+}
+
+.prompt-bar__eq i {
+  display: block;
+  width: 2px;
+  height: 10px;
+  background: #ef4444;
+  border-radius: 1px;
+  animation: pb-eq 0.8s ease-in-out infinite alternate;
+}
+
+.prompt-bar__eq i:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.prompt-bar__eq i:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes pb-eq {
+  from {
+    height: 4px;
+  }
+  to {
+    height: 12px;
+  }
+}
+
+.prompt-bar__send {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: none;
+  background: #334155;
+  color: #64748b;
+  cursor: not-allowed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.prompt-bar__send[data-armed] {
+  background: #ef4444;
+  color: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
+}
+
+.prompt-bar__send[data-armed]:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+}
+
+.prompt-bar__send[data-pressed] {
+  transform: scale(var(--pb-press, 0.96));
+}
+
+.prompt-bar__glyph {
+  width: 16px;
+  height: 16px;
+  display: block;
+  transition: transform 0.2s ease;
+}

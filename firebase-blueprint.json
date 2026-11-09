@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and coding progress stats",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "level": { "type": "string", "maxLength": 50 },
+        "points": { "type": "integer" },
+        "streak": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "displayName"]
+    },
+    "UserLesson": {
+      "title": "UserLesson",
+      "description": "Student progress on a specific coding lesson",
+      "type": "object",
+      "properties": {
+        "lessonId": { "type": "string", "maxLength": 100 },
+        "title": { "type": "string", "maxLength": 200 },
+        "completed": { "type": "boolean" },
+        "score": { "type": "integer" },
+        "lastAccessed": { "type": "string", "format": "date-time" }
+      },
+      "required": ["lessonId", "title", "completed"]
+    },
+    "UserNote": {
+      "title": "UserNote",
+      "description": "Personalized coding note or saved explanation",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "content": { "type": "string", "maxLength": 10000 },
+        "category": { "type": "string", "maxLength": 50 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "content"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Stores individual user profile and learning metrics"
+    },
+    "/users/{userId}/lessons/{lessonId}": {
+      "schema": "UserLesson",
+      "description": "Subcollection storing lesson completion status per student"
+    },
+    "/users/{userId}/notes/{noteId}": {
+      "schema": "UserNote",
+      "description": "Subcollection storing student personal code study notes"
+    }
+  }
+}

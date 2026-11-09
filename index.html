@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Browser extension compatibility shim for window.fetch getter-only properties
+      (function() {
+        try {
+          var originalFetch = window.fetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() {
+              return originalFetch;
+            },
+            set: function(val) {
+              originalFetch = val;
+            },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {
+          // Fallback if property is non-configurable
+        }
+      })();
+    </script>
+    <title>NEXUS - Uganda National Examinations Board (UNEB) AI Teaching Assistant</title>
+    <meta name="description" content="NEXUS interactive AI teaching assistant dedicated to the Uganda National Examinations Board (UNEB - https://uneb.ac.ug/) curriculum for Primary (PLE) and Secondary (UCE/UACE) levels, interactive past papers, and visual blueprints." />
+    <meta property="og:title" content="NEXUS - Uganda National Examinations Board (UNEB) AI Teaching Assistant" />
+    <meta property="og:description" content="NEXUS interactive AI teaching assistant dedicated to the Uganda National Examinations Board (UNEB - https://uneb.ac.ug/) curriculum for Primary (PLE) and Secondary (UCE/UACE) levels, interactive past papers, and visual blueprints." />
+    <link rel="icon" type="image/png" href="/assets/aistudio/image_2c59f5bc.png" />
+    <meta property="og:image" content="/assets/aistudio/image_2c59f5bc.png" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="/assets/aistudio/image_2c59f5bc.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=New+Rocker&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=New+Rocker&display=swap" rel="stylesheet" />
+    </noscript>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
