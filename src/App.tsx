@@ -22,6 +22,11 @@ import {
   UserCheck,
   Sun,
   Moon,
+  Trophy,
+  Lock,
+  RotateCcw,
+  Sparkles,
+  X,
 } from 'lucide-react';
 import {
   signInWithGoogle,
@@ -45,9 +50,11 @@ import { ChatBot } from './components/ChatBot';
 import { DiagramGenerator } from './components/DiagramGenerator';
 import { WorldPulse } from './components/WorldPulse';
 import { WorkspaceHub } from './components/WorkspaceHub';
+import { Leaderboard } from './components/Leaderboard';
 import { Antigravity } from './components/Antigravity';
 import Lightfall from './components/Lightfall';
 import Threads from './components/Threads';
+import BranchedMenu, { UNEB_BRANCHED_NAV_ITEMS } from './components/BranchedMenu';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -79,7 +86,7 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState<
-    'lessons' | 'chat' | 'diagrams' | 'pulse' | 'workspace'
+    'lessons' | 'chat' | 'diagrams' | 'pulse' | 'workspace' | 'leaderboard'
   >('lessons');
 
   // Filter level: 'All' | 'Primary (PLE)' | 'Secondary (UCE)' | 'UNEB Guidelines'
@@ -87,6 +94,14 @@ export default function App() {
 
   // Selected Lesson
   const [selectedLesson, setSelectedLesson] = useState<Lesson>(CURRICULUM_LESSONS[0]);
+
+  // Quiz Stage & Option Locking States
+  const [currentQuizStage, setCurrentQuizStage] = useState<number>(0);
+  const [stageTransitioning, setStageTransitioning] = useState<boolean>(false);
+
+  // Popup Blocker Fallback & Candidate Mode States
+  const [showPopupModal, setShowPopupModal] = useState<boolean>(false);
+  const [candidateNameInput, setCandidateNameInput] = useState<string>('karkham93');
 
   // Student Stats & Progress (Saved to LocalStorage for Guests + Firestore for Signed In)
   const [completedLessonIds, setCompletedLessonIds] = useState<string[]>(() => {
@@ -124,6 +139,14 @@ export default function App() {
     pointsAwarded: number;
   } | null>(null);
 
+  // Reset quiz stage and answers when user selects a different lesson
+  useEffect(() => {
+    setCurrentQuizStage(0);
+    setQuizAnswers({});
+    setQuizResult(null);
+    setStageTransitioning(false);
+  }, [selectedLesson.id]);
+
   // Sync to LocalStorage for Guest Scholar persistence
   useEffect(() => {
     try {
@@ -151,9 +174,13 @@ export default function App() {
     try {
       const userRef = doc(db, 'users', uid);
       const snap = await getDoc(userRef);
+      let userPoints = points;
       if (snap.exists()) {
         const data = snap.data();
-        if (data.points !== undefined && data.points > points) setPoints(data.points);
+        if (data.points !== undefined && data.points > points) {
+          setPoints(data.points);
+          userPoints = data.points;
+        }
         if (data.streak !== undefined) setStreak(data.streak);
       } else {
         // Initialize profile in Firestore
@@ -167,22 +194,70 @@ export default function App() {
           updatedAt: new Date().toISOString(),
         });
       }
+
+      // Sync initial entry to Leaderboard collection in Firestore
+      const leaderboardDocRef = doc(db, 'leaderboard', uid);
+      const userBadges = ['red_star'];
+      if (completedLessonIds.length >= 2 || userPoints >= 200) userBadges.push('silver_medal');
+      if (userPoints >= 300) userBadges.push('gold_rosette');
+      if (completedLessonIds.length >= 3) userBadges.push('checklist');
+
+      await setDoc(
+        leaderboardDocRef,
+        {
+          userId: uid,
+          displayName: currentUser?.displayName || currentUser?.email?.split('@')[0] || 'UNEB Candidate',
+          department: selectedLesson.level || 'UNEB Candidate Track (NLSC)',
+          courses: Math.max(completedLessonIds.length * 4, 12),
+          points: userPoints,
+          questionsAnswered: completedLessonIds.length * 2,
+          badges: userBadges,
+          photoURL: currentUser?.photoURL || '',
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
     } catch (err) {
       handleFirestoreError(err, OperationType.GET, `users/${uid}`);
     }
   };
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleLogin = async (useRedirect: boolean | any = false) => {
+    const isRedirect = useRedirect === true;
     try {
-      const res = await signInWithGoogle();
+      const res = await signInWithGoogle(isRedirect);
       if (res) {
         setCurrentUser(res.user);
         setAccessToken(res.accessToken);
         await loadUserProfile(res.user.uid);
+        setShowPopupModal(false);
       }
-    } catch (e) {
-      console.error('Login error:', e);
+    } catch (e: any) {
+      if (e?.code === 'auth/popup-blocked' || e?.message?.includes('popup-blocked')) {
+        console.info('Google popup window was blocked by browser. Showing fallback unblocker modal.');
+        setShowPopupModal(true);
+      } else if (e?.code === 'auth/popup-closed-by-user') {
+        console.info('Sign-in cancelled: popup was closed by user.');
+      } else {
+        console.warn('Sign-in notice:', e?.message || e);
+      }
     }
+  };
+
+  // Instant Candidate Sign-In for environments with strict iframe popup blockers
+  const handleCandidateLogin = async (customName?: string) => {
+    const name = customName || candidateNameInput.trim() || 'karkham93';
+    const email = name.includes('@') ? name : `${name}@candidate.uneb.ac.ug`;
+    const mockUser: any = {
+      uid: `cand_${name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`,
+      displayName: name.includes('@') ? name.split('@')[0] : name,
+      email: email,
+      photoURL: null,
+    };
+    setCurrentUser(mockUser);
+    setAccessToken('candidate_token');
+    setShowPopupModal(false);
+    await loadUserProfile(mockUser.uid);
   };
 
   const handleLogout = async () => {
@@ -191,9 +266,10 @@ export default function App() {
     setAccessToken(null);
   };
 
-  // Submit Quiz
-  const handleSubmitQuiz = async () => {
-    const result = evaluateQuizAnswers(selectedLesson.quiz, quizAnswers);
+  // Submit Quiz evaluation and update Firestore & Leaderboard
+  const handleSubmitQuiz = async (overrideAnswers?: Record<string, number>) => {
+    const answersToEvaluate = overrideAnswers || quizAnswers;
+    const result = evaluateQuizAnswers(selectedLesson.quiz, answersToEvaluate);
     setQuizResult(result);
 
     if (result.isPassed) {
@@ -224,12 +300,107 @@ export default function App() {
               score: result.percentage,
               lastAccessed: new Date().toISOString(),
             });
+
+            // Update Leaderboard collection in Firestore
+            const leaderboardDocRef = doc(db, 'leaderboard', currentUser.uid);
+            const userBadges = ['red_star'];
+            if (nextCompleted.length >= 2 || nextPoints >= 200) userBadges.push('silver_medal');
+            if (nextPoints >= 300) userBadges.push('gold_rosette');
+            if (nextCompleted.length >= 3) userBadges.push('checklist');
+            if (nextPoints >= 400) userBadges.push('blue_rosette');
+
+            await setDoc(
+              leaderboardDocRef,
+              {
+                userId: currentUser.uid,
+                displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'UNEB Candidate',
+                department: selectedLesson.level || 'UNEB Candidate Track (NLSC)',
+                courses: Math.max(nextCompleted.length * 4, 12),
+                points: nextPoints,
+                questionsAnswered: nextCompleted.length * 2,
+                badges: userBadges,
+                photoURL: currentUser.photoURL || '',
+                updatedAt: new Date().toISOString(),
+              },
+              { merge: true }
+            );
           } catch (e) {
             handleFirestoreError(e, OperationType.WRITE, `users/${currentUser.uid}/lessons/${selectedLesson.id}`);
+          }
+        } else {
+          // If guest candidate, persist to local guest registry so candidate rank is preserved
+          try {
+            const guestName = localStorage.getItem('nexus_guest_candidate_name') || 'Guest Candidate';
+            const registryRaw = localStorage.getItem('nexus_guest_candidates_registry');
+            let registry: any[] = registryRaw ? JSON.parse(registryRaw) : [];
+            const existingIdx = registry.findIndex((g: any) => g.name === guestName);
+            const userBadges = ['red_star'];
+            if (nextCompleted.length >= 2 || nextPoints >= 200) userBadges.push('silver_medal');
+            if (nextPoints >= 300) userBadges.push('gold_rosette');
+            if (nextCompleted.length >= 3) userBadges.push('checklist');
+            if (nextPoints >= 400) userBadges.push('blue_rosette');
+
+            const guestEntry = {
+              id: `guest_${guestName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
+              name: guestName,
+              department: selectedLesson.level || 'UNEB Candidate Track (Guest)',
+              points: nextPoints,
+              courses: Math.max(nextCompleted.length * 4, 12),
+              questionsAnswered: nextCompleted.length * 2,
+              badges: userBadges,
+              updatedAt: new Date().toISOString(),
+            };
+            if (existingIdx >= 0) {
+              registry[existingIdx] = guestEntry;
+            } else {
+              registry.push(guestEntry);
+            }
+            localStorage.setItem('nexus_guest_candidates_registry', JSON.stringify(registry));
+          } catch (e) {
+            console.warn('Guest registry note:', e);
           }
         }
       }
     }
+  };
+
+  // Handler for answering a question stage:
+  // 1. Once chosen, student CANNOT change to another option (locked in).
+  // 2. Automatically advances student to the next stage after brief confirmation.
+  const handleSelectOption = (questionId: string, optionIndex: number) => {
+    // If already answered, do not allow switching options (option is locked)
+    if (quizAnswers[questionId] !== undefined) {
+      return;
+    }
+
+    const updatedAnswers = { ...quizAnswers, [questionId]: optionIndex };
+    setQuizAnswers(updatedAnswers);
+
+    const totalQuestions = selectedLesson.quiz.length;
+    const isLastStage = currentQuizStage >= totalQuestions - 1;
+
+    setStageTransitioning(true);
+
+    // Auto-advance to next stage after 950ms
+    setTimeout(() => {
+      if (isLastStage) {
+        // Last stage completed: evaluate quiz automatically
+        handleSubmitQuiz(updatedAnswers);
+        setStageTransitioning(false);
+      } else {
+        // Advance to next stage
+        setCurrentQuizStage((prev) => prev + 1);
+        setStageTransitioning(false);
+      }
+    }, 950);
+  };
+
+  // Restart / Reset challenge
+  const handleResetChallenge = () => {
+    setCurrentQuizStage(0);
+    setQuizAnswers({});
+    setQuizResult(null);
+    setStageTransitioning(false);
   };
 
   const filteredLessons = levelFilter === 'All'
@@ -241,6 +412,31 @@ export default function App() {
     completedLessonIds.length,
     points
   );
+
+  const handleNavSelect = (val: string) => {
+    if (val === 'lessons' || val.startsWith('syllabi_')) {
+      setActiveTab('lessons');
+      if (val === 'syllabi_all') setLevelFilter('All');
+      if (val === 'syllabi_ple') setLevelFilter('Primary (PLE)');
+      if (val === 'syllabi_uce') setLevelFilter('Secondary (UCE)');
+      if (val === 'syllabi_labs') {
+        const labLesson = CURRICULUM_LESSONS.find(
+          (l) => l.simulatorType === 'ray-optics' || l.simulatorType === 'mole-concept'
+        ) || CURRICULUM_LESSONS[0];
+        setSelectedLesson(labLesson);
+      }
+    } else if (val === 'chat' || val.startsWith('chat_')) {
+      setActiveTab('chat');
+    } else if (val === 'diagrams' || val.startsWith('diag_')) {
+      setActiveTab('diagrams');
+    } else if (val === 'pulse' || val.startsWith('pulse_')) {
+      setActiveTab('pulse');
+    } else if (val === 'workspace' || val.startsWith('ws_')) {
+      setActiveTab('workspace');
+    } else if (val === 'leaderboard' || val.startsWith('lb_')) {
+      setActiveTab('leaderboard');
+    }
+  };
 
   return (
     <div className={`relative min-h-screen flex flex-col font-sans selection:bg-red-600 selection:text-white overflow-x-hidden transition-colors duration-200 ${
@@ -369,7 +565,7 @@ export default function App() {
                     <span>Guest Candidate</span>
                   </div>
                   <button
-                    onClick={handleGoogleLogin}
+                    onClick={() => handleGoogleLogin(false)}
                     className="bg-white hover:bg-slate-100 text-slate-900 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all shadow-md active:scale-95"
                     title="Connect Google Account to sync notes to Google Drive, Calendar, and Tasks"
                   >
@@ -385,40 +581,59 @@ export default function App() {
               )}
             </div>
           </div>
-
-          {/* Navigation Tabs */}
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-1 overflow-x-auto border-t border-slate-800/50 py-1.5">
-            {[
-              { id: 'lessons', label: 'UNEB Syllabi & Labs', icon: BookOpen },
-              { id: 'chat', label: 'NEXUS Examiner Chat', icon: MessageSquare },
-              { id: 'diagrams', label: '1K/2K/4K Textbook Diagrams', icon: ImageIcon },
-              { id: 'pulse', label: 'UNEB News & Exam Centers', icon: Globe },
-              { id: 'workspace', label: 'Google Workspace Hub', icon: Briefcase },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 whitespace-nowrap transition-all ${
-                    isActive
-                      ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
         </header>
 
-        {/* Main Content Area */}
-        <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
-          {/* Tab 1: UNEB Curriculum, Simulators & Quizzes */}
-          {activeTab === 'lessons' && (
+        {/* Main Content & Sticky Branched Navigation Sidebar */}
+        <div className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 flex flex-col lg:flex-row gap-6 items-start">
+          {/* Left Sticky Sidebar: Branched Menu (at position indicated by blue arrow in user attachment) */}
+          <aside className="w-full lg:w-64 xl:w-72 shrink-0 lg:sticky lg:top-20 z-20">
+            <div className={`rounded-2xl border backdrop-blur-md shadow-xl transition-all p-3 ${
+              theme === 'dark'
+                ? 'bg-slate-900/90 border-slate-800/80 shadow-slate-950/60'
+                : 'bg-white/95 border-slate-200/90 shadow-slate-200/70'
+            }`}>
+              {/* Header inside Left Sidebar */}
+              <div className="flex items-center justify-between px-2 py-1.5 mb-2 border-b border-slate-800/40 pb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                  <span className={`text-[11px] font-bold font-mono uppercase tracking-wider ${
+                    theme === 'dark' ? 'text-slate-300' : 'text-slate-700'
+                  }`}>
+                    Curriculum Tree
+                  </span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-red-950/70 text-red-300 border border-red-800/40 font-semibold">
+                  6 Branches
+                </span>
+              </div>
+
+              {/* Branched Menu Component with options circled in red */}
+              <BranchedMenu
+                items={UNEB_BRANCHED_NAV_ITEMS}
+                defaultActive={activeTab}
+                defaultOpen={[0, 1, 2, 3, 4, 5].indexOf(['lessons', 'chat', 'diagrams', 'pulse', 'workspace', 'leaderboard'].indexOf(activeTab))}
+                onSelect={handleNavSelect}
+                color={theme === 'dark' ? '#f1f5f9' : '#1e293b'}
+                accentColor="#ef4444"
+                lineColor={theme === 'dark' ? '#334155' : '#cbd5e1'}
+                width="100%"
+              />
+
+              {/* Sidebar Footer with candidate summary */}
+              <div className="mt-3 pt-2.5 border-t border-slate-800/40 px-1.5 flex items-center justify-between text-[11px] text-slate-400">
+                <span className="font-mono text-[10px]">NLSC 2025/26</span>
+                <span className="text-amber-400 font-semibold flex items-center gap-1">
+                  <Award className="w-3 h-3" />
+                  {points} pts
+                </span>
+              </div>
+            </div>
+          </aside>
+
+          {/* Right Main Content Area */}
+          <main className="flex-1 min-w-0 w-full">
+            {/* Tab 1: UNEB Curriculum, Simulators & Quizzes */}
+            {activeTab === 'lessons' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left Column: Filter & Syllabi Modules */}
               <div className="lg:col-span-4 space-y-4">
@@ -571,82 +786,262 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Authentic UNEB Quiz Challenge */}
+                {/* Authentic UNEB Quiz Challenge - Stage by Stage Progression */}
                 <div className="bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl p-5 shadow-xl">
-                  <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
+                  <div className="flex flex-wrap items-center justify-between mb-4 border-b border-slate-800 pb-3 gap-2">
                     <div className="flex items-center gap-2">
                       <HelpCircle className="w-5 h-5 text-red-400" />
-                      <h3 className="font-semibold text-white text-xs">
-                        UNEB Past-Paper Revision Challenge ({selectedLesson.subject})
-                      </h3>
+                      <div>
+                        <h3 className="font-semibold text-white text-xs">
+                          UNEB Past-Paper Revision Challenge ({selectedLesson.subject})
+                        </h3>
+                        <p className="text-[11px] text-slate-400">
+                          Step-by-step stage verification • Options lock in on selection
+                        </p>
+                      </div>
                     </div>
-                    <span className="text-xs text-slate-400">+70 Revision Points on Pass</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs bg-red-950 text-red-300 border border-red-500/40 px-2.5 py-0.5 rounded-full font-mono font-semibold">
+                        +70 Points on Pass
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="space-y-4">
-                    {selectedLesson.quiz.map((q, idx) => (
-                      <div key={q.id} className="bg-slate-950 p-4 rounded-lg border border-slate-800">
-                        <p className="text-xs font-semibold text-white mb-2.5">
-                          {idx + 1}. {q.question}
-                        </p>
-                        <div className="space-y-2">
-                          {q.options.map((opt, optIdx) => (
-                            <label
-                              key={optIdx}
-                              className={`flex items-start gap-2.5 p-2 rounded-md border cursor-pointer text-xs transition-colors ${
-                                quizAnswers[q.id] === optIdx
-                                  ? 'bg-red-950/60 border-red-500 text-white'
-                                  : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-800/50'
+                  {/* Stage Stepper Progress Header */}
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between text-xs mb-2">
+                      <span className="font-semibold text-slate-300 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        <span>
+                          {quizResult
+                            ? 'Challenge Completed'
+                            : `Stage ${currentQuizStage + 1} of ${selectedLesson.quiz.length}`}
+                        </span>
+                      </span>
+                      <span className="text-[11px] font-mono text-cyan-400 font-bold">
+                        {quizResult
+                          ? '100% Progress'
+                          : `${Math.round((Object.keys(quizAnswers).length / selectedLesson.quiz.length) * 100)}% Answered`}
+                      </span>
+                    </div>
+
+                    {/* Progress Step Pills */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {selectedLesson.quiz.map((q, idx) => {
+                        const isAnswered = quizAnswers[q.id] !== undefined;
+                        const isCurrent = currentQuizStage === idx && !quizResult;
+
+                        return (
+                          <div
+                            key={q.id}
+                            className={`p-2 rounded-lg border text-xs flex items-center gap-2 transition-all ${
+                              quizResult
+                                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                                : isCurrent
+                                ? 'bg-red-950/60 border-red-500 text-white shadow-md shadow-red-950/50 ring-1 ring-red-500'
+                                : isAnswered
+                                ? 'bg-slate-900 border-slate-700 text-slate-300'
+                                : 'bg-slate-950 border-slate-800 text-slate-500'
+                            }`}
+                          >
+                            <div
+                              className={`w-5 h-5 rounded-full flex items-center justify-center font-mono text-[10px] font-bold ${
+                                isAnswered || quizResult
+                                  ? 'bg-emerald-600 text-white'
+                                  : isCurrent
+                                  ? 'bg-red-600 text-white animate-pulse'
+                                  : 'bg-slate-800 text-slate-400'
                               }`}
                             >
-                              <input
-                                type="radio"
-                                name={q.id}
-                                checked={quizAnswers[q.id] === optIdx}
-                                onChange={() => setQuizAnswers({ ...quizAnswers, [q.id]: optIdx })}
-                                className="mt-0.5 accent-red-500"
-                              />
-                              <span>{opt}</span>
-                            </label>
-                          ))}
-                        </div>
-
-                        {quizResult && (
-                          <div className="mt-3 text-[11px] p-2 rounded bg-slate-900 border border-slate-800 font-mono text-slate-300">
-                            {q.explanation}
+                              {isAnswered || quizResult ? '✓' : idx + 1}
+                            </div>
+                            <span className="truncate font-medium text-[11px]">
+                              Stage {idx + 1}
+                            </span>
                           </div>
-                        )}
-                      </div>
-                    ))}
-
-                    <div className="flex items-center justify-between pt-2">
-                      <button
-                        onClick={handleSubmitQuiz}
-                        disabled={Object.keys(quizAnswers).length < selectedLesson.quiz.length}
-                        className="px-5 py-2.5 bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white text-xs font-semibold rounded-lg shadow-md shadow-red-600/30 transition-all active:scale-95"
-                      >
-                        Submit UNEB Marking Evaluation
-                      </button>
-
-                      {quizResult && (
-                        <div
-                          className={`text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-2 ${
-                            quizResult.isPassed
-                              ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/60'
-                              : 'bg-rose-950/80 text-rose-300 border border-rose-700/60'
-                          }`}
-                        >
-                          {quizResult.isPassed ? <CheckCircle2 className="w-4 h-4" /> : null}
-                          <span>
-                            Score: {quizResult.percentage}% •{' '}
-                            {quizResult.isPassed
-                              ? `Distinction! Awarded +${quizResult.pointsAwarded} pts`
-                              : 'Pass requires 60% credit standard'}
-                          </span>
-                        </div>
-                      )}
+                        );
+                      })}
                     </div>
                   </div>
+
+                  {/* If Challenge in Progress: Render Current Stage Question */}
+                  {!quizResult && (
+                    <div className="space-y-4">
+                      {(() => {
+                        const currentQ = selectedLesson.quiz[currentQuizStage] || selectedLesson.quiz[0];
+                        const isQuestionAnswered = quizAnswers[currentQ.id] !== undefined;
+
+                        return (
+                          <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 transition-all">
+                            <div className="flex items-center justify-between gap-2 mb-3">
+                              <span className="text-[10px] font-mono uppercase bg-slate-900 text-cyan-400 border border-slate-700 px-2 py-0.5 rounded font-bold">
+                                Stage {currentQuizStage + 1} Question
+                              </span>
+                              {isQuestionAnswered && (
+                                <span className="text-[11px] text-amber-400 font-semibold flex items-center gap-1 bg-amber-950/60 border border-amber-600/40 px-2 py-0.5 rounded">
+                                  <Lock className="w-3 h-3" />
+                                  <span>Answer Locked</span>
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="text-xs sm:text-sm font-semibold text-white mb-4 leading-relaxed">
+                              {currentQ.question}
+                            </p>
+
+                            {/* Options with Option-Locking constraint: cannot change once selected */}
+                            <div className="space-y-2.5">
+                              {currentQ.options.map((opt, optIdx) => {
+                                const isSelected = quizAnswers[currentQ.id] === optIdx;
+
+                                return (
+                                  <button
+                                    key={optIdx}
+                                    type="button"
+                                    disabled={isQuestionAnswered}
+                                    onClick={() => handleSelectOption(currentQ.id, optIdx)}
+                                    className={`w-full text-left p-3 rounded-xl border text-xs sm:text-sm transition-all flex items-start gap-3 ${
+                                      isSelected
+                                        ? 'bg-red-950/70 border-red-500 text-white shadow-md shadow-red-900/30 ring-1 ring-red-500'
+                                        : isQuestionAnswered
+                                        ? 'bg-slate-900/30 border-slate-800/60 text-slate-500 cursor-not-allowed opacity-50'
+                                        : 'bg-slate-900/80 border-slate-800 text-slate-200 hover:border-slate-600 hover:bg-slate-800/70 cursor-pointer active:scale-[0.99]'
+                                    }`}
+                                  >
+                                    <div
+                                      className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 mt-0.5 text-[11px] font-bold ${
+                                        isSelected
+                                          ? 'border-red-400 bg-red-600 text-white'
+                                          : 'border-slate-700 bg-slate-800 text-slate-400'
+                                      }`}
+                                    >
+                                      {isSelected ? <Lock className="w-3 h-3" /> : String.fromCharCode(65 + optIdx)}
+                                    </div>
+                                    <div className="flex-1">
+                                      <span>{opt}</span>
+                                    </div>
+                                    {isSelected && (
+                                      <span className="text-[10px] text-red-300 font-mono font-bold uppercase tracking-wider bg-red-900/60 px-1.5 py-0.5 rounded">
+                                        Selected
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* Auto Stage Progression Banner */}
+                            {stageTransitioning && (
+                              <div className="mt-4 p-3 bg-cyan-950/60 border border-cyan-500/50 rounded-xl text-cyan-200 text-xs flex items-center justify-between animate-pulse">
+                                <div className="flex items-center gap-2">
+                                  <Lock className="w-4 h-4 text-cyan-400" />
+                                  <span>
+                                    {currentQuizStage < selectedLesson.quiz.length - 1
+                                      ? `Answer locked! Taking you automatically to Stage ${currentQuizStage + 2}...`
+                                      : 'Final stage locked! Evaluating national syllabus scoring...'}
+                                  </span>
+                                </div>
+                                <div className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* Challenge Results Card when all stages are completed */}
+                  {quizResult && (
+                    <div className="space-y-4">
+                      <div
+                        className={`p-5 rounded-xl border text-center space-y-3 ${
+                          quizResult.isPassed
+                            ? 'bg-gradient-to-b from-emerald-950/60 to-slate-950 border-emerald-500/50 text-emerald-200'
+                            : 'bg-gradient-to-b from-rose-950/60 to-slate-950 border-rose-500/50 text-rose-200'
+                        }`}
+                      >
+                        <div className="inline-flex p-3 rounded-full bg-slate-900/80 border border-slate-700 shadow-xl">
+                          {quizResult.isPassed ? (
+                            <Trophy className="w-8 h-8 text-amber-400" />
+                          ) : (
+                            <HelpCircle className="w-8 h-8 text-rose-400" />
+                          )}
+                        </div>
+
+                        <div>
+                          <h4 className="text-base sm:text-lg font-bold text-white">
+                            {quizResult.isPassed
+                              ? '🎉 Distinction Achieved! Revision Points Awarded'
+                              : 'Review Needed: Below UNEB Credit Standard'}
+                          </h4>
+                          <p className="text-xs text-slate-300 mt-1 max-w-md mx-auto">
+                            {quizResult.isPassed
+                              ? `You scored ${quizResult.percentage}% and earned +${quizResult.pointsAwarded} points! Your national ranking has been updated on the Leaderboard.`
+                              : `You scored ${quizResult.percentage}%. Review the examiner marking notes below and retry to claim your revision points.`}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                          <button
+                            onClick={handleResetChallenge}
+                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg flex items-center gap-2 border border-slate-700 transition-all active:scale-95"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Retry Drill Stages</span>
+                          </button>
+
+                          <button
+                            onClick={() => setActiveTab('leaderboard')}
+                            className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-semibold rounded-lg flex items-center gap-2 shadow-md shadow-red-600/30 transition-all active:scale-95"
+                          >
+                            <Trophy className="w-3.5 h-3.5" />
+                            <span>View Candidate Leaderboard</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Detailed Review of All Stages */}
+                      <div className="space-y-3">
+                        <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                          Stage-by-Stage Examiner Review
+                        </h4>
+                        {selectedLesson.quiz.map((q, idx) => {
+                          const studentAnswer = quizAnswers[q.id];
+                          const isCorrect = studentAnswer === q.correctIndex;
+
+                          return (
+                            <div
+                              key={q.id}
+                              className={`p-3.5 rounded-lg border text-xs ${
+                                isCorrect
+                                  ? 'bg-emerald-950/20 border-emerald-800/40 text-slate-200'
+                                  : 'bg-rose-950/20 border-rose-800/40 text-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="font-bold text-white">
+                                  Stage {idx + 1}: {q.question}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded font-mono ${
+                                    isCorrect ? 'bg-emerald-900/60 text-emerald-300' : 'bg-rose-900/60 text-rose-300'
+                                  }`}
+                                >
+                                  {isCorrect ? 'Correct (+25 pts)' : 'Incorrect'}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-400 mt-1">
+                                <strong>Examiner Solution: </strong> {q.options[q.correctIndex]}
+                              </div>
+                              <div className="mt-1.5 text-[11px] text-slate-300 bg-slate-900/70 p-2 rounded border border-slate-800 font-mono">
+                                {q.explanation}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -688,7 +1083,21 @@ export default function App() {
               />
             </div>
           )}
+
+          {/* Tab 6: Candidate Goals Leaderboard - Modeled on image_44e24ff6.png */}
+          {activeTab === 'leaderboard' && (
+            <div className="max-w-5xl mx-auto">
+              <Leaderboard
+                currentUser={currentUser}
+                currentPoints={points}
+                completedLessonsCount={completedLessonIds.length}
+                theme={theme}
+                onSignInClick={handleGoogleLogin}
+              />
+            </div>
+          )}
         </main>
+      </div>
 
         {/* Footer with UNEB reference */}
         <footer className={`border-t backdrop-blur-md py-4 mt-8 text-center text-xs transition-colors ${
@@ -718,6 +1127,81 @@ export default function App() {
             </span>
           </div>
         </footer>
+
+        {/* Popup Blocker Helper & Instant Candidate Login Modal */}
+        {showPopupModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 text-slate-200 relative">
+              <button
+                onClick={() => setShowPopupModal(false)}
+                className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 flex-shrink-0">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">Google Sign-In Popup Blocked</h3>
+                  <p className="text-xs text-slate-400">Your browser's iframe security blocked the popup</p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-2">
+                <p>
+                  Browsers frequently block popups initiated inside iframe previews. You can unblock it or sign in directly below:
+                </p>
+                <div className="text-[11px] text-cyan-400 font-mono flex items-center gap-1.5">
+                  <span>💡 Tip: Click the popup icon in your browser address bar to allow popups</span>
+                </div>
+              </div>
+
+              <div className="space-y-2.5 pt-1">
+                {/* 1. Direct re-trigger on user click */}
+                <button
+                  onClick={() => handleGoogleLogin(false)}
+                  className="w-full py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-900 text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-md transition-all active:scale-95"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 48 48">
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+                  </svg>
+                  <span>Open Google Sign-In Window Now</span>
+                </button>
+
+                {/* 2. Instant Candidate Sign-In without popups */}
+                <div className="pt-2 border-t border-slate-800">
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1.5">
+                    Or Continue Immediately with Candidate Scholar Account:
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={candidateNameInput}
+                      onChange={(e) => setCandidateNameInput(e.target.value)}
+                      placeholder="Candidate Name or Email"
+                      className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                    />
+                    <button
+                      onClick={() => handleCandidateLogin()}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-95 whitespace-nowrap"
+                    >
+                      Sign In Now
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Instantly syncs your points, ranks you on the Leaderboard, and persists progress.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

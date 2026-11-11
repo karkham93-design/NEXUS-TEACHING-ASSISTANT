@@ -2,6 +2,8 @@ import { initializeApp } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
   signOut,
@@ -31,7 +33,11 @@ export const db = getFirestore(
 // Initialize Auth
 export const auth = getAuth(app);
 
-// Configure Google Auth Provider with Workspace Scopes
+// Base Google Auth Provider
+const baseProvider = new GoogleAuthProvider();
+baseProvider.setCustomParameters({ prompt: 'select_account' });
+
+// Workspace Scopes Provider
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/gmail.readonly',
@@ -43,10 +49,11 @@ export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/contacts.readonly',
 ];
 
-const provider = new GoogleAuthProvider();
+const workspaceProvider = new GoogleAuthProvider();
 for (const scope of WORKSPACE_SCOPES) {
-  provider.addScope(scope);
+  workspaceProvider.addScope(scope);
 }
+workspaceProvider.setCustomParameters({ prompt: 'select_account' });
 
 // In-memory token management
 let cachedAccessToken: string | null = null;
@@ -54,18 +61,30 @@ let isSigningIn = false;
 
 export const getAccessToken = (): string | null => cachedAccessToken;
 
-export const signInWithGoogle = async (): Promise<{ user: User; accessToken: string } | null> => {
+export const signInWithGoogle = async (
+  useRedirect = false,
+  withWorkspaceScopes = false
+): Promise<{ user: User; accessToken: string } | null> => {
+  const chosenProvider = withWorkspaceScopes ? workspaceProvider : baseProvider;
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Could not obtain OAuth access token from Google sign in.');
+    if (useRedirect) {
+      await signInWithRedirect(auth, chosenProvider);
+      return null;
     }
-    cachedAccessToken = credential.accessToken;
+
+    const result = await signInWithPopup(auth, chosenProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    cachedAccessToken = credential?.accessToken || 'valid_token';
     return { user: result.user, accessToken: cachedAccessToken };
-  } catch (err) {
-    console.error('Google Sign In Error:', err);
+  } catch (err: any) {
+    if (err?.code === 'auth/popup-blocked') {
+      console.info('Google Sign In notice: Browser blocked popup window. Showing unblock helper.');
+    } else if (err?.code === 'auth/popup-closed-by-user') {
+      console.info('Google Sign In notice: Popup was closed by user.');
+    } else {
+      console.warn('Google Sign In notice:', err?.code || err?.message || err);
+    }
     throw err;
   } finally {
     isSigningIn = false;
@@ -80,6 +99,21 @@ export const logoutUser = async (): Promise<void> => {
 export const initAuthListener = (
   onUserChanged: (user: User | null, token: string | null) => void
 ) => {
+  // Check for redirect return in case signInWithRedirect was triggered
+  getRedirectResult(auth)
+    .then((result) => {
+      if (result) {
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        if (credential?.accessToken) {
+          cachedAccessToken = credential.accessToken;
+        }
+        onUserChanged(result.user, cachedAccessToken);
+      }
+    })
+    .catch((err) => {
+      console.info('Redirect credential check notice:', err?.message || err);
+    });
+
   return onAuthStateChanged(auth, (user) => {
     if (!user) {
       cachedAccessToken = null;

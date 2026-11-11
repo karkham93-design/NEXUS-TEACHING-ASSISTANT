@@ -40,6 +40,23 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "title", "content"]
+    },
+    "LeaderboardEntry": {
+      "title": "LeaderboardEntry",
+      "description": "Public candidate leaderboard entry with points and badges",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "department": { "type": "string", "maxLength": 100 },
+        "courses": { "type": "integer" },
+        "points": { "type": "integer" },
+        "questionsAnswered": { "type": "integer" },
+        "badges": { "type": "array" },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "displayName", "points"]
     }
   },
   "firestore": {
@@ -54,6 +71,10 @@
     "/users/{userId}/notes/{noteId}": {
       "schema": "UserNote",
       "description": "Subcollection storing student personal code study notes"
+    },
+    "/leaderboard/{userId}": {
+      "schema": "LeaderboardEntry",
+      "description": "Public leaderboard rankings showing candidate scores and badges"
     }
   }
 }

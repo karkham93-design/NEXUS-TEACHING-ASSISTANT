@@ -20,6 +20,7 @@ import {
   BookOpen01Icon,
   Image01Icon,
   UserCheck01Icon,
+  Award01Icon,
 } from '@hugeicons/core-free-icons';
 import './PromptBar.css';
 import VoicePill from './VoicePill';
@@ -51,6 +52,7 @@ export const IMAGE_NAV_TABS = [
   { id: 'diagrams', label: '1K/2K/4K Textbook Diagrams', icon: Image01Icon },
   { id: 'pulse', label: 'UNEB News & Exam Centers', icon: Globe02Icon },
   { id: 'workspace', label: 'Google Workspace Hub', icon: File02Icon },
+  { id: 'leaderboard', label: 'Candidate Leaderboard', icon: Award01Icon },
 ];
 
 // Branched menu corresponding to the options in the user's images, featuring Lower School & Upper School modules
@@ -732,6 +734,8 @@ export default function PromptBar({
                       ? 'UNEB News, Timetables & Centers'
                       : activeNavTab === 'workspace'
                       ? 'Google Workspace Hub'
+                      : activeNavTab === 'leaderboard'
+                      ? 'Candidate Goals Leaderboard'
                       : 'UNEB Examination Syllabus Tree'}
                   </span>
                   <span className="text-[10px] bg-red-950 text-red-300 border border-red-500/40 px-2 py-0.5 rounded-full font-mono font-semibold">
