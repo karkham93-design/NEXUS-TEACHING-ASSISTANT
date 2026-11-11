@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { generateUNEBDiagramSVG } from './src/server/diagramGenerator.ts';
 import { generateCurriculumChatFallback } from './src/server/curriculumFallback.ts';
+import { searchInternetStudyPhotos } from './src/server/studyPhotosService.ts';
 
 dotenv.config();
 
@@ -142,16 +143,37 @@ Be encouraging, intellectually rigorous, and pedagogical.`;
       usedModel = 'NEXUS Curriculum Knowledge Engine (Offline Mode)';
     }
 
-    return res.json({ text: replyText, modelUsed: usedModel });
+    // Check if student asked for photos, diagrams, or visual imagery of anything relating to studies
+    let studyPhotos: any[] = [];
+    const isPhotoRequest = /\b(photo|photos|picture|pictures|image|images|diagram|diagrams|illustration|look like|show me|view)\b/i.test(lastUserMessage);
+    if (isPhotoRequest) {
+      try {
+        const photoResults = await searchInternetStudyPhotos(lastUserMessage, { imageSize: '1K', limit: 4 });
+        studyPhotos = photoResults.photos;
+      } catch (photoErr) {
+        console.info('Chat study photo search note:', photoErr);
+      }
+    }
+
+    return res.json({ text: replyText, modelUsed: usedModel, studyPhotos });
   } catch (err: any) {
     console.error('Chat API Error:', err);
+    const lastUserMessage = req.body?.messages?.[req.body?.messages?.length - 1]?.text || '';
     const fallbackText = generateCurriculumChatFallback(
-      req.body?.messages?.[req.body?.messages?.length - 1]?.text || '',
+      lastUserMessage,
       req.body?.role || 'general'
     );
+    let studyPhotos: any[] = [];
+    if (/\b(photo|photos|picture|diagram|image)\b/i.test(lastUserMessage)) {
+      try {
+        const photoResults = await searchInternetStudyPhotos(lastUserMessage, { limit: 3 });
+        studyPhotos = photoResults.photos;
+      } catch {}
+    }
     return res.json({
       text: fallbackText,
       modelUsed: 'NEXUS Curriculum Knowledge Engine (Safety Mode)',
+      studyPhotos,
     });
   }
 });
@@ -285,7 +307,39 @@ app.post('/api/transcribe', async (req, res) => {
   }
 });
 
-// High-Quality Image Generation with 1K, 2K, 4K resolution options for UNEB Diagrams
+// Search & fetch real educational photos and diagrams from the internet
+app.get('/api/search-study-photos', async (req, res) => {
+  try {
+    const query = String(req.query.q || req.query.query || '').trim();
+    if (!query) {
+      return res.status(400).json({ error: 'Search query q is required.' });
+    }
+    const imageSize = (req.query.size as '1K' | '2K' | '4K') || '1K';
+    const limit = Math.min(Number(req.query.limit) || 8, 20);
+    const result = await searchInternetStudyPhotos(query, { imageSize, limit });
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Study photos GET search error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to search study photos.' });
+  }
+});
+
+app.post('/api/search-study-photos', async (req, res) => {
+  try {
+    const { query, prompt, imageSize = '1K', limit = 8, preferPhotos = true } = req.body;
+    const searchTarget = String(query || prompt || '').trim();
+    if (!searchTarget) {
+      return res.status(400).json({ error: 'Search query or prompt is required.' });
+    }
+    const result = await searchInternetStudyPhotos(searchTarget, { imageSize, limit, preferPhotos });
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Study photos POST search error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to search study photos.' });
+  }
+});
+
+// High-Quality Image & Photo Generation with 1K, 2K, 4K resolution options for UNEB Diagrams & Internet Photos
 app.post('/api/generate-image', async (req, res) => {
   try {
     const {
@@ -293,13 +347,45 @@ app.post('/api/generate-image', async (req, res) => {
       imageSize = '1K', // '1K' | '2K' | '4K'
       aspectRatio = '16:9',
       forceSvg = false,
+      engineMode = 'internet', // 'internet' | 'ai' | 'vector'
     } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required for image generation.' });
     }
 
-    if (forceSvg) {
+    // 1. Internet Photos Engine Mode: Fetch real authentic educational photographs from the internet
+    const isPhotoIntent = engineMode === 'internet' ||
+      /\b(photo|photos|picture|pictures|photograph|real photo|real|microscope|landscape|specimen)\b/i.test(prompt);
+
+    if (isPhotoIntent && !forceSvg && engineMode !== 'vector') {
+      try {
+        const searchResult = await searchInternetStudyPhotos(prompt, { imageSize: imageSize as any, limit: 6, preferPhotos: true });
+        if (searchResult.photos && searchResult.photos.length > 0) {
+          const topPhoto = searchResult.photos[0];
+          return res.json({
+            imageUrl: topPhoto.imageUrl,
+            thumbnailUrl: topPhoto.thumbnailUrl,
+            title: topPhoto.title,
+            description: topPhoto.caption,
+            imageSize: topPhoto.resolutionTag || imageSize,
+            isInternetPhoto: true,
+            isVectorBlueprint: false,
+            sourceName: topPhoto.sourceName,
+            sourceUrl: topPhoto.sourceUrl,
+            dimensions: `${topPhoto.width} × ${topPhoto.height}`,
+            license: topPhoto.license,
+            relatedPhotos: searchResult.photos,
+            note: `Real educational study photo sourced from ${topPhoto.sourceName} in ${topPhoto.resolutionTag || imageSize} resolution.`,
+          });
+        }
+      } catch (internetErr) {
+        console.info('Internet photo search fallback note:', internetErr);
+      }
+    }
+
+    // 2. Vector Blueprint Engine Mode
+    if (forceSvg || engineMode === 'vector') {
       const blueprint = generateUNEBDiagramSVG(prompt, imageSize as any, aspectRatio);
       const imageUrl = `data:image/svg+xml;base64,${Buffer.from(blueprint.svg).toString('base64')}`;
       return res.json({
@@ -307,11 +393,12 @@ app.post('/api/generate-image', async (req, res) => {
         description: blueprint.description,
         imageSize,
         isVectorBlueprint: true,
+        isInternetPhoto: false,
         note: 'Vector blueprint generated to official UNEB syllabus standards.',
       });
     }
 
-    const enhancedPrompt = `High clarity educational textbook diagram for Uganda National Examinations Board (UNEB) curriculum: ${prompt}. Clean white background, crisp typography, labeled scientific/geographic/mathematical components, conforming to official East African educational standards.`;
+    const enhancedPrompt = `High clarity educational textbook diagram or photograph for Uganda National Examinations Board (UNEB) curriculum: ${prompt}. Clean background, crisp typography, labeled scientific/geographic/mathematical components, conforming to official East African educational standards.`;
 
     let imageUrl: string | null = null;
     let descriptionText = '';
@@ -357,13 +444,34 @@ app.post('/api/generate-image', async (req, res) => {
 
         if (imageUrl) break;
       } catch (err: any) {
-        console.info(`Model ${model} unavailable for image generation, falling back cleanly to vector SVG blueprint.`);
-        break; // Fast failover to vector SVG engine
+        console.info(`Model ${model} unavailable for image generation, falling back cleanly.`);
+        break; // Fast failover
       }
     }
 
     if (!imageUrl) {
-      // Rapid high-definition UNEB Vector Blueprint (<50ms response)
+      // First try fetching real internet photo matching the prompt
+      try {
+        const fallbackSearch = await searchInternetStudyPhotos(prompt, { imageSize: imageSize as any, limit: 4 });
+        if (fallbackSearch.photos.length > 0) {
+          const top = fallbackSearch.photos[0];
+          return res.json({
+            imageUrl: top.imageUrl,
+            thumbnailUrl: top.thumbnailUrl,
+            title: top.title,
+            description: top.caption,
+            imageSize: top.resolutionTag || imageSize,
+            isInternetPhoto: true,
+            isVectorBlueprint: false,
+            sourceName: top.sourceName,
+            sourceUrl: top.sourceUrl,
+            relatedPhotos: fallbackSearch.photos,
+            note: 'Authentic internet study photo retrieved from national educational archives.',
+          });
+        }
+      } catch {}
+
+      // High-definition UNEB Vector Blueprint (<50ms response)
       const blueprint = generateUNEBDiagramSVG(prompt, imageSize as any, aspectRatio);
       imageUrl = `data:image/svg+xml;base64,${Buffer.from(blueprint.svg).toString('base64')}`;
       descriptionText = blueprint.description;
@@ -373,11 +481,12 @@ app.post('/api/generate-image', async (req, res) => {
         description: descriptionText,
         imageSize,
         isVectorBlueprint: true,
+        isInternetPhoto: false,
         note: 'High-definition vector blueprint generated to official UNEB syllabus standards.',
       });
     }
 
-    return res.json({ imageUrl, description: descriptionText, imageSize, isVectorBlueprint: false });
+    return res.json({ imageUrl, description: descriptionText, imageSize, isVectorBlueprint: false, isInternetPhoto: false });
   } catch (err: any) {
     console.error('Image Generation API Error:', err);
     // Graceful fallback even if top-level try fails
@@ -391,9 +500,10 @@ app.post('/api/generate-image', async (req, res) => {
         description: blueprint.description,
         imageSize: fallbackSize,
         isVectorBlueprint: true,
+        isInternetPhoto: false,
       });
     } catch {
-      return res.status(500).json({ error: err.message || 'Image generation failed.' });
+      return res.status(500).json({ error: err?.message || 'Image generation failed.' });
     }
   }
 });

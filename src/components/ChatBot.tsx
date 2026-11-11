@@ -8,6 +8,10 @@ import {
   RotateCcw,
   Square,
   Zap,
+  Image as ImageIcon,
+  Globe,
+  Maximize2,
+  ExternalLink,
 } from 'lucide-react';
 import { AudioTutor } from './AudioTutor';
 import PromptBar, { BRANCHED_MENU_SECTIONS } from './PromptBar';
@@ -18,6 +22,7 @@ interface ChatMessage {
   text: string;
   modelUsed?: string;
   highThinking?: boolean;
+  studyPhotos?: any[];
 }
 
 interface ChatBotProps {
@@ -47,11 +52,12 @@ export const ChatBot: React.FC<ChatBotProps> = ({ currentConceptContext, onNavig
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const quickQuestions = [
+    'Photo of human heart four chambers',
+    'Photo of Mount Rwenzori glaciers',
+    'Microscope photo of plant leaf cells',
+    'Photo of East Africa Great Rift Valley',
     'How do I score Division 1 in PLE Integrated Science?',
     'Solve: 2x² - 4x - 6 = 0 step-by-step',
-    'Explain Snell\'s law & total internal reflection',
-    'What does the UNEB Act 2021 say about malpractice?',
-    'What are the 4 chambers of the heart and their functions?',
   ];
 
   const scrollToBottom = () => {
@@ -126,6 +132,7 @@ export const ChatBot: React.FC<ChatBotProps> = ({ currentConceptContext, onNavig
         text: data.text || 'I could not generate an answer.',
         modelUsed: data.modelUsed || activeModel,
         highThinking: isHighThinking,
+        studyPhotos: data.studyPhotos || [],
       };
 
       setMessages((prev) => [...prev, modelMessage]);
@@ -394,6 +401,63 @@ export const ChatBot: React.FC<ChatBotProps> = ({ currentConceptContext, onNavig
                 )}
 
                 <div className="whitespace-pre-wrap font-sans">{m.text}</div>
+
+                {/* Real Study Photos & Diagrams from the Internet */}
+                {m.studyPhotos && m.studyPhotos.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between text-[11px] text-cyan-400 font-semibold">
+                      <span className="flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Real Study Photos &amp; Diagrams from Internet:</span>
+                      </span>
+                      {onNavigateSection && (
+                        <button
+                          onClick={() => onNavigateSection('diagrams')}
+                          className="text-red-400 hover:text-red-300 underline font-mono text-[10px] flex items-center gap-1"
+                        >
+                          <span>Open in 1K/2K/4K Studio →</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {m.studyPhotos.map((photo: any, pIdx: number) => (
+                        <div
+                          key={pIdx}
+                          className="rounded-lg border border-slate-800 bg-slate-900/95 overflow-hidden flex flex-col group hover:border-cyan-500/60 transition-all shadow-sm"
+                        >
+                          <div className="relative aspect-video bg-black/60 overflow-hidden">
+                            <img
+                              src={photo.thumbnailUrl || photo.imageUrl}
+                              alt={photo.title}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                              loading="lazy"
+                            />
+                            <span className="absolute top-1 right-1 bg-black/80 backdrop-blur-sm text-[9px] font-mono font-bold text-amber-300 px-1.5 py-0.2 rounded border border-amber-500/40">
+                              {photo.resolutionTag || '1K'}
+                            </span>
+                          </div>
+                          <div className="p-2 flex-1 flex flex-col justify-between">
+                            <h6 className="font-semibold text-white text-[11px] line-clamp-1">{photo.title}</h6>
+                            <p className="text-[10px] text-slate-400 line-clamp-2 mt-0.5">{photo.caption}</p>
+                            <div className="mt-1.5 pt-1 border-t border-slate-800/80 flex items-center justify-between text-[10px]">
+                              <span className="text-slate-500 font-mono text-[9px] truncate max-w-[120px]">{photo.sourceName}</span>
+                              <a
+                                href={photo.imageUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-cyan-400 hover:underline flex items-center gap-0.5 font-bold"
+                              >
+                                <span>View Full</span>
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {isUser && (

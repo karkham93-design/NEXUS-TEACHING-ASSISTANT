@@ -60,6 +60,8 @@ export function calculatePLEDivision(aggregate: number): {
   return { division: 'Division U', remarks: 'Ungraded (Candidate must retake)' };
 }
 
+export const POINTS_PER_QUESTION = 2;
+
 /**
  * Calculates current level and completion stats for UNEB candidate study track.
  */
@@ -72,15 +74,17 @@ export function calculateLearningProgress(
   const safeCompleted = Math.min(safeTotal, Math.max(0, completedCount));
   const completionPercentage = Math.round((safeCompleted / safeTotal) * 100);
 
-  let currentLevel = 'Primary Pupil (P.5 - P.7)';
-  if (scorePoints >= 500) {
+  let currentLevel = 'Candidate Scholar';
+  if (scorePoints >= 30) {
     currentLevel = 'National Scholar (Division 1 Distinction)';
-  } else if (scorePoints >= 300) {
+  } else if (scorePoints >= 20) {
     currentLevel = 'UACE Senior Scholar (S.5 - S.6)';
-  } else if (scorePoints >= 150) {
+  } else if (scorePoints >= 10) {
     currentLevel = 'UCE Candidate (S.3 - S.4)';
-  } else if (scorePoints >= 50) {
+  } else if (scorePoints >= 4) {
     currentLevel = 'Lower Secondary Scholar (S.1 - S.2)';
+  } else if (scorePoints >= 2) {
+    currentLevel = 'Primary Pupil (P.5 - P.7)';
   }
 
   return {
@@ -93,7 +97,8 @@ export function calculateLearningProgress(
 }
 
 /**
- * Validates a quiz submission and computes awarded revision points.
+ * Validates a quiz submission and computes awarded revision points:
+ * Exactly 2 points per correctly answered question.
  */
 export function evaluateQuizAnswers(
   questions: QuizQuestion[],
@@ -111,8 +116,8 @@ export function evaluateQuizAnswers(
   }
 
   const percentage = Math.round((correctCount / questions.length) * 100);
-  const isPassed = percentage >= 60; // 60% passing mark for UNEB Credit
-  const pointsAwarded = isPassed ? correctCount * 25 + 20 : correctCount * 10;
+  const isPassed = correctCount > 0; // Any correct question earns real points
+  const pointsAwarded = correctCount * POINTS_PER_QUESTION; // Strictly 2 points per question
 
   return {
     score: correctCount,

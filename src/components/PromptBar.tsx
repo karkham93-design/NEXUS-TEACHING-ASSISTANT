@@ -49,7 +49,7 @@ export interface MenuBranch {
 export const IMAGE_NAV_TABS = [
   { id: 'syllabi', label: 'UNEB Syllabi & Labs', icon: BookOpen01Icon },
   { id: 'chat', label: 'NEXUS Examiner Chat', icon: UserCheck01Icon },
-  { id: 'diagrams', label: '1K/2K/4K Textbook Diagrams', icon: Image01Icon },
+  { id: 'diagrams', label: '1K/2K/4K Study Photos & Diagrams', icon: Image01Icon },
   { id: 'pulse', label: 'UNEB News & Exam Centers', icon: Globe02Icon },
   { id: 'workspace', label: 'Google Workspace Hub', icon: File02Icon },
   { id: 'leaderboard', label: 'Candidate Leaderboard', icon: Award01Icon },
@@ -108,7 +108,7 @@ export const BRANCHED_MENU_SECTIONS: MenuBranch[] = [
   },
   {
     id: 'diagrams',
-    name: '1K/2K/4K Textbook Diagrams',
+    name: '1K/2K/4K Study Photos & Diagrams',
     icon: Image01Icon,
     items: [
       { key: 'diag-heart', name: 'Human Heart 4 Chambers', description: 'Double circulation & labeled valves vector diagram', action: 'diag_heart', promptTemplate: 'Generate diagram of Human Heart double circulation' },

@@ -104,7 +104,7 @@ export const UNEB_BRANCHED_NAV_ITEMS: BranchedMenuSection[] = [
     ]
   },
   {
-    label: '1K/2K/4K Textbook Diagrams',
+    label: '1K/2K/4K Study Photos & Diagrams',
     value: 'diagrams',
     icon: <ImageIcon className="w-4 h-4" />,
     children: [
