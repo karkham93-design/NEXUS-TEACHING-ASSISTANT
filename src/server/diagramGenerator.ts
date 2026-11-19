@@ -9,85 +9,110 @@
 export interface GeneratedDiagramResult {
   svg: string;
   description: string;
+  width: number;
+  height: number;
+}
+
+export function getTargetPixelDimensions(
+  imageSize: '1K' | '2K' | '4K' = '2K',
+  aspectRatio: string = '16:9'
+): { width: number; height: number } {
+  const longEdge = imageSize === '4K' ? 3840 : imageSize === '2K' ? 2048 : 1280;
+  if (aspectRatio === '4:3') {
+    const width = imageSize === '1K' ? 1024 : longEdge;
+    return { width, height: Math.round((width * 3) / 4) };
+  }
+  if (aspectRatio === '1:1') {
+    const size = imageSize === '1K' ? 1024 : longEdge;
+    return { width: size, height: size };
+  }
+  // Default 16:9
+  const width = imageSize === '2K' ? 2560 : longEdge;
+  return { width, height: Math.round((width * 9) / 16) };
+}
+
+function attachDimensions(
+  result: Omit<GeneratedDiagramResult, 'width' | 'height'>,
+  width: number,
+  height: number
+): GeneratedDiagramResult {
+  return {
+    ...result,
+    svg: result.svg.replace(
+      '<svg xmlns="http://www.w3.org/2000/svg"',
+      '<svg xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"'
+    ),
+    width,
+    height,
+  };
 }
 
 export function generateUNEBDiagramSVG(
   prompt: string,
-  imageSize: '1K' | '2K' | '4K' = '1K',
+  imageSize: '1K' | '2K' | '4K' = '2K',
   aspectRatio: string = '16:9'
 ): GeneratedDiagramResult {
   const lower = prompt.toLowerCase();
+  const { width: baseWidth, height: baseHeight } = getTargetPixelDimensions(imageSize, aspectRatio);
 
-  // Determine viewport dimensions based on imageSize affordance and aspectRatio
-  let baseWidth = 1280;
-  let baseHeight = 720;
-
-  if (aspectRatio === '4:3') {
-    baseWidth = 1024;
-    baseHeight = 768;
-  } else if (aspectRatio === '1:1') {
-    baseWidth = 900;
-    baseHeight = 900;
-  }
-
-  // 1. Human Heart & Double Circulation (PLE Science & UCE Biology 553)
-  if (lower.includes('heart') || lower.includes('circulation') || lower.includes('blood') || lower.includes('valve')) {
-    return generateHeartSVG(baseWidth, baseHeight, imageSize);
-  }
-
-  // 2. East Africa Rift Valley & Horst Block Mountains (UCE Geography 273/1 & PLE SST)
-  if (lower.includes('rift') || lower.includes('valley') || lower.includes('horst') || lower.includes('mountain') || lower.includes('fault')) {
-    return generateRiftValleySVG(baseWidth, baseHeight, imageSize);
-  }
-
-  // 3. Snell's Law & Glass Prism Light Refraction (UCE Physics 535)
-  if (lower.includes('prism') || lower.includes('refraction') || lower.includes('snell') || lower.includes('optics') || lower.includes('light')) {
-    return generatePrismRefractionSVG(baseWidth, baseHeight, imageSize);
-  }
-
-  // 4. Plant Cell vs Animal Cell (PLE Science & UCE Biology 553)
-  if (lower.includes('cell') || lower.includes('organelle') || lower.includes('chloroplast') || lower.includes('vacuole')) {
-    return generateCellComparisonSVG(baseWidth, baseHeight, imageSize);
-  }
-
-  // 5. Mendelian Genetics & Punnett Square (UCE Biology 553)
-  if (lower.includes('punnett') || lower.includes('genetics') || lower.includes('mendel') || lower.includes('allele') || lower.includes('hybrid')) {
-    return generatePunnettSquareSVG(baseWidth, baseHeight, imageSize);
-  }
-
-  // 6. Circle Theorems (UCE Mathematics 456)
-  if (lower.includes('circle') || lower.includes('theorem') || lower.includes('tangent') || lower.includes('chord')) {
-    return generateCircleTheoremsSVG(baseWidth, baseHeight, imageSize);
-  }
-
-  // 7. Quadratic Function & Parabola (UCE Mathematics 456)
-  if (lower.includes('quadratic') || lower.includes('parabola') || lower.includes('curve') || lower.includes('vertex') || lower.includes('axis of symmetry')) {
-    return generateQuadraticParabolaSVG(baseWidth, baseHeight, imageSize);
-  }
-
-  // 8. Electric Circuits & Ohm's Law (UCE Physics 535)
-  if (lower.includes('circuit') || lower.includes('ohm') || lower.includes('resistor') || lower.includes('ammeter') || lower.includes('voltmeter') || lower.includes('current')) {
-    return generateElectricCircuitSVG(prompt, baseWidth, baseHeight, imageSize);
-  }
-
-  // 9. Atomic Structure & Bohr Model (UCE Chemistry 545 / Physics)
-  if (lower.includes('atom') || lower.includes('bohr') || lower.includes('electron') || lower.includes('proton') || lower.includes('nucleus') || lower.includes('neutron')) {
-    return generateAtomicStructureSVG(prompt, baseWidth, baseHeight, imageSize);
-  }
-
-  // 10. Photosynthesis & Leaf Structure (PLE Science & UCE Biology 553)
+  // 1. Photosynthesis & Leaf Structure (check before generic 'light' optics match)
   if (lower.includes('photosynthesis') || lower.includes('chlorophyll') || lower.includes('stoma') || lower.includes('leaf') || lower.includes('transpiration')) {
-    return generatePhotosynthesisSVG(prompt, baseWidth, baseHeight, imageSize);
+    return attachDimensions(generatePhotosynthesisSVG(prompt, baseWidth, baseHeight, imageSize), baseWidth, baseHeight);
+  }
+
+  // 2. Plant Cell vs Animal Cell (check before 'blood' when explicitly about cells/organelles)
+  if (lower.includes('cell') || lower.includes('organelle') || lower.includes('chloroplast') || lower.includes('vacuole')) {
+    return attachDimensions(generateCellComparisonSVG(baseWidth, baseHeight, imageSize), baseWidth, baseHeight);
+  }
+
+  // 3. Human Heart & Double Circulation (PLE Science & UCE Biology 553)
+  if (lower.includes('heart') || lower.includes('circulation') || lower.includes('blood') || lower.includes('valve')) {
+    return attachDimensions(generateHeartSVG(baseWidth, baseHeight, imageSize), baseWidth, baseHeight);
+  }
+
+  // 4. East Africa Rift Valley & Horst Block Mountains (UCE Geography 273/1 & PLE SST)
+  if (lower.includes('rift') || lower.includes('valley') || lower.includes('horst') || lower.includes('mountain') || lower.includes('fault')) {
+    return attachDimensions(generateRiftValleySVG(baseWidth, baseHeight, imageSize), baseWidth, baseHeight);
+  }
+
+  // 5. Snell's Law & Glass Prism Light Refraction (UCE Physics 535)
+  if (lower.includes('prism') || lower.includes('refraction') || lower.includes('snell') || lower.includes('optics') || lower.includes('light')) {
+    return attachDimensions(generatePrismRefractionSVG(baseWidth, baseHeight, imageSize), baseWidth, baseHeight);
+  }
+
+  // 6. Mendelian Genetics & Punnett Square (UCE Biology 553)
+  if (lower.includes('punnett') || lower.includes('genetics') || lower.includes('mendel') || lower.includes('allele') || lower.includes('hybrid')) {
+    return attachDimensions(generatePunnettSquareSVG(baseWidth, baseHeight, imageSize), baseWidth, baseHeight);
+  }
+
+  // 7. Circle Theorems (UCE Mathematics 456)
+  if (lower.includes('circle') || lower.includes('theorem') || lower.includes('tangent') || lower.includes('chord')) {
+    return attachDimensions(generateCircleTheoremsSVG(baseWidth, baseHeight, imageSize), baseWidth, baseHeight);
+  }
+
+  // 8. Quadratic Function & Parabola (UCE Mathematics 456)
+  if (lower.includes('quadratic') || lower.includes('parabola') || lower.includes('curve') || lower.includes('vertex') || lower.includes('axis of symmetry')) {
+    return attachDimensions(generateQuadraticParabolaSVG(baseWidth, baseHeight, imageSize), baseWidth, baseHeight);
+  }
+
+  // 9. Electric Circuits & Ohm's Law (UCE Physics 535)
+  if (lower.includes('circuit') || lower.includes('ohm') || lower.includes('resistor') || lower.includes('ammeter') || lower.includes('voltmeter') || lower.includes('current')) {
+    return attachDimensions(generateElectricCircuitSVG(prompt, baseWidth, baseHeight, imageSize), baseWidth, baseHeight);
+  }
+
+  // 10. Atomic Structure & Bohr Model (UCE Chemistry 545 / Physics)
+  if (lower.includes('atom') || lower.includes('bohr') || lower.includes('electron') || lower.includes('proton') || lower.includes('nucleus') || lower.includes('neutron')) {
+    return attachDimensions(generateAtomicStructureSVG(prompt, baseWidth, baseHeight, imageSize), baseWidth, baseHeight);
   }
 
   // Default: Dynamic Comprehensive UNEB Technical Concept Blueprint for ANY prompt
-  return generateGenericUNEBBlueprintSVG(prompt, baseWidth, baseHeight, imageSize);
+  return attachDimensions(generateGenericUNEBBlueprintSVG(prompt, baseWidth, baseHeight, imageSize), baseWidth, baseHeight);
 }
 
 // -------------------------------------------------------------
 // Diagram 1: Human Heart & Double Circulation
 // -------------------------------------------------------------
-function generateHeartSVG(w: number, h: number, size: string): GeneratedDiagramResult {
+function generateHeartSVG(w: number, h: number, size: string): { svg: string; description: string } {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="${w}" height="${h}">
     <defs>
       <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -242,7 +267,7 @@ function generateHeartSVG(w: number, h: number, size: string): GeneratedDiagramR
 // -------------------------------------------------------------
 // Diagram 2: East Africa Rift Valley & Horst Block Mountains
 // -------------------------------------------------------------
-function generateRiftValleySVG(w: number, h: number, size: string): GeneratedDiagramResult {
+function generateRiftValleySVG(w: number, h: number, size: string): { svg: string; description: string } {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="${w}" height="${h}">
     <defs>
       <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -339,7 +364,7 @@ function generateRiftValleySVG(w: number, h: number, size: string): GeneratedDia
 // -------------------------------------------------------------
 // Diagram 3: Snell's Law & Glass Prism Refraction
 // -------------------------------------------------------------
-function generatePrismRefractionSVG(w: number, h: number, size: string): GeneratedDiagramResult {
+function generatePrismRefractionSVG(w: number, h: number, size: string): { svg: string; description: string } {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="${w}" height="${h}">
     <defs>
       <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -455,7 +480,7 @@ function generatePrismRefractionSVG(w: number, h: number, size: string): Generat
 // -------------------------------------------------------------
 // Diagram 4: Plant Cell vs Animal Cell
 // -------------------------------------------------------------
-function generateCellComparisonSVG(w: number, h: number, size: string): GeneratedDiagramResult {
+function generateCellComparisonSVG(w: number, h: number, size: string): { svg: string; description: string } {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="${w}" height="${h}">
     <rect width="1280" height="720" fill="#0f172a" />
     <rect x="40" y="30" width="1200" height="65" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1.5" />
@@ -521,7 +546,7 @@ function generateCellComparisonSVG(w: number, h: number, size: string): Generate
 // -------------------------------------------------------------
 // Diagram 5: Mendelian Monohybrid Cross Punnett Square
 // -------------------------------------------------------------
-function generatePunnettSquareSVG(w: number, h: number, size: string): GeneratedDiagramResult {
+function generatePunnettSquareSVG(w: number, h: number, size: string): { svg: string; description: string } {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="${w}" height="${h}">
     <rect width="1280" height="720" fill="#0f172a" />
     <rect x="40" y="30" width="1200" height="65" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1.5" />
@@ -612,7 +637,7 @@ function generatePunnettSquareSVG(w: number, h: number, size: string): Generated
 // -------------------------------------------------------------
 // Diagram 6: Circle Theorems
 // -------------------------------------------------------------
-function generateCircleTheoremsSVG(w: number, h: number, size: string): GeneratedDiagramResult {
+function generateCircleTheoremsSVG(w: number, h: number, size: string): { svg: string; description: string } {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="${w}" height="${h}">
     <rect width="1280" height="720" fill="#0f172a" />
     <rect x="40" y="30" width="1200" height="65" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1.5" />
@@ -697,7 +722,7 @@ function generateCircleTheoremsSVG(w: number, h: number, size: string): Generate
 // -------------------------------------------------------------
 // Diagram 7: Quadratic Parabola Function
 // -------------------------------------------------------------
-function generateQuadraticParabolaSVG(w: number, h: number, size: string): GeneratedDiagramResult {
+function generateQuadraticParabolaSVG(w: number, h: number, size: string): { svg: string; description: string } {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="${w}" height="${h}">
     <rect width="1280" height="720" fill="#0f172a" />
     <rect x="40" y="30" width="1200" height="65" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1.5" />
@@ -778,7 +803,7 @@ function generateQuadraticParabolaSVG(w: number, h: number, size: string): Gener
 // -------------------------------------------------------------
 // Diagram 8: Electric Circuit & Ohm's Law (Physics 535)
 // -------------------------------------------------------------
-function generateElectricCircuitSVG(prompt: string, w: number, h: number, size: string): GeneratedDiagramResult {
+function generateElectricCircuitSVG(prompt: string, w: number, h: number, size: string): { svg: string; description: string } {
   const cleanTitle = prompt.replace(/[<>&"]/g, ' ').slice(0, 60);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="${w}" height="${h}">
     <rect width="1280" height="720" fill="#0b1120" />
@@ -890,7 +915,7 @@ function generateElectricCircuitSVG(prompt: string, w: number, h: number, size: 
 // -------------------------------------------------------------
 // Diagram 9: Atomic Structure & Bohr Model (Chemistry 545 / Physics)
 // -------------------------------------------------------------
-function generateAtomicStructureSVG(prompt: string, w: number, h: number, size: string): GeneratedDiagramResult {
+function generateAtomicStructureSVG(prompt: string, w: number, h: number, size: string): { svg: string; description: string } {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="${w}" height="${h}">
     <rect width="1280" height="720" fill="#090d16" />
     <rect x="40" y="30" width="1200" height="65" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1.5" />
@@ -966,7 +991,7 @@ function generateAtomicStructureSVG(prompt: string, w: number, h: number, size: 
 // -------------------------------------------------------------
 // Diagram 10: Photosynthesis & Internal Leaf Structure (Biology 553)
 // -------------------------------------------------------------
-function generatePhotosynthesisSVG(prompt: string, w: number, h: number, size: string): GeneratedDiagramResult {
+function generatePhotosynthesisSVG(prompt: string, w: number, h: number, size: string): { svg: string; description: string } {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="${w}" height="${h}">
     <rect width="1280" height="720" fill="#061e14" />
     <rect x="40" y="30" width="1200" height="65" rx="10" fill="#064e3b" stroke="#047857" stroke-width="1.5" />
@@ -1059,7 +1084,7 @@ function generatePhotosynthesisSVG(prompt: string, w: number, h: number, size: s
 // -------------------------------------------------------------
 // Diagram 11: Dynamic High-Definition UNEB Concept Blueprint for ANY prompt
 // -------------------------------------------------------------
-function generateGenericUNEBBlueprintSVG(prompt: string, w: number, h: number, size: string): GeneratedDiagramResult {
+function generateGenericUNEBBlueprintSVG(prompt: string, w: number, h: number, size: string): { svg: string; description: string } {
   const cleanTitle = prompt.replace(/[<>&"]/g, ' ').trim().slice(0, 60);
 
   // Extract meaningful keywords from user's custom prompt

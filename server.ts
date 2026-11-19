@@ -3,9 +3,9 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
-import { generateUNEBDiagramSVG } from './src/server/diagramGenerator.ts';
+import { generateUNEBDiagramSVG, getTargetPixelDimensions } from './src/server/diagramGenerator.ts';
 import { generateCurriculumChatFallback } from './src/server/curriculumFallback.ts';
-import { searchInternetStudyPhotos } from './src/server/studyPhotosService.ts';
+import { searchInternetStudyPhotos, cleanStudyPhotoQuery } from './src/server/studyPhotosService.ts';
 
 dotenv.config();
 
@@ -145,10 +145,10 @@ Be encouraging, intellectually rigorous, and pedagogical.`;
 
     // Check if student asked for photos, diagrams, or visual imagery of anything relating to studies
     let studyPhotos: any[] = [];
-    const isPhotoRequest = /\b(photo|photos|picture|pictures|image|images|diagram|diagrams|illustration|look like|show me|view)\b/i.test(lastUserMessage);
+    const isPhotoRequest = /\b(photo|photos|picture|pictures|image|images|diagram|diagrams|illustration|illustrate|look like|show me)\b/i.test(lastUserMessage);
     if (isPhotoRequest) {
       try {
-        const photoResults = await searchInternetStudyPhotos(lastUserMessage, { imageSize: '1K', limit: 4 });
+        const photoResults = await searchInternetStudyPhotos(lastUserMessage, { imageSize: '2K', limit: 4, preferPhotos: true });
         studyPhotos = photoResults.photos;
       } catch (photoErr) {
         console.info('Chat study photo search note:', photoErr);
@@ -164,9 +164,9 @@ Be encouraging, intellectually rigorous, and pedagogical.`;
       req.body?.role || 'general'
     );
     let studyPhotos: any[] = [];
-    if (/\b(photo|photos|picture|diagram|image)\b/i.test(lastUserMessage)) {
+    if (/\b(photo|photos|picture|pictures|diagram|diagrams|image|images)\b/i.test(lastUserMessage)) {
       try {
-        const photoResults = await searchInternetStudyPhotos(lastUserMessage, { limit: 3 });
+        const photoResults = await searchInternetStudyPhotos(lastUserMessage, { imageSize: '2K', limit: 3, preferPhotos: true });
         studyPhotos = photoResults.photos;
       } catch {}
     }
@@ -307,6 +307,101 @@ app.post('/api/transcribe', async (req, res) => {
   }
 });
 
+// Helper: Refine natural-language student photo requests into concise Wikipedia/Wikimedia terms using free-tier Gemini
+async function refineStudyQueryWithGemini(rawPrompt: string): Promise<string | null> {
+  const models = ['gemini-3.1-flash-lite', 'gemini-4-hydrogen'];
+  for (const model of models) {
+    try {
+      const response = await runWithTimeout(
+        () =>
+          ai.models.generateContent({
+            model,
+            contents: `Convert this student's study image request into 2 to 4 concise Wikipedia/Wikimedia Commons search keywords (English nouns only, no punctuation, no "photo" or "diagram"): "${rawPrompt}"`,
+            ...(model === 'gemini-4-hydrogen'
+              ? { config: { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } }
+              : {}),
+          }),
+        3000
+      );
+      const refined = (response.text || '').replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (refined && refined.length >= 3 && refined.split(' ').length <= 6) {
+        return refined;
+      }
+    } catch {
+      // cascade
+    }
+  }
+  return null;
+}
+
+// Helper: Generate a topic-specific SVG educational diagram/visual via free-tier Gemini models
+async function generateTopicSpecificSvgWithGemini(
+  prompt: string,
+  imageSize: '1K' | '2K' | '4K',
+  aspectRatio: string
+): Promise<{ svg: string; description: string; width: number; height: number } | null> {
+  const { width, height } = getTargetPixelDimensions(imageSize, aspectRatio);
+  const models = ['gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+
+  const svgPrompt = `Create a crisp, richly detailed educational textbook illustration / labeled diagram in SVG format specifically depicting: "${prompt}".
+Requirements:
+- Return ONLY a valid <svg>...</svg> element (plus optionally one short sentence after it describing the diagram, or just the SVG).
+- Use viewBox="0 0 1280 720" width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet".
+- Draw actual recognizable visual anatomy/shapes/structures/landscape/apparatus for "${prompt}" using <path>, <circle>, <ellipse>, <rect>, <polygon>, <defs><linearGradient>, and clear callout leader <line> + <text> labels (no generic placeholder boxes).
+- Use a dark slate educational background (#0f172a to #1e293b) with high-contrast colors (#38bdf8, #4ade80, #f59e0b, #ef4444, #ffffff) and a clean header banner showing "${prompt.replace(/["<>]/g, '')} • ${imageSize}".
+- Keep all labels inside 0..1280 width and 0..720 height without overlapping text.`;
+
+  for (const model of models) {
+    try {
+      const response = await runWithTimeout(
+        () =>
+          ai.models.generateContent({
+            model,
+            contents: svgPrompt,
+            ...(model === 'gemini-4-hydrogen' || model === 'gemini-3.8-flash'
+              ? { config: { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } } }
+              : {}),
+          }),
+        9500
+      );
+      const text = response.text || '';
+      const svgMatch = text.match(/<svg[\s\S]*?<\/svg>/i);
+      if (svgMatch && svgMatch[0].length > 250 && /<(path|circle|ellipse|rect|polygon|polyline|line)\b/i.test(svgMatch[0])) {
+        let svg = svgMatch[0]
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/\son\w+="[^"]*"/gi, '');
+        // Enforce exact requested 1K/2K/4K pixel width and height on root <svg>
+        svg = svg.replace(/<svg\b([^>]*)>/i, (_full, attrs) => {
+          let cleaned = String(attrs)
+            .replace(/\s(width|height|preserveAspectRatio)="[^"]*"/gi, '')
+            .trim();
+          if (!/xmlns=/i.test(cleaned)) {
+            cleaned = `xmlns="http://www.w3.org/2000/svg" ${cleaned}`;
+          }
+          if (!/viewBox=/i.test(cleaned)) {
+            cleaned = `${cleaned} viewBox="0 0 1280 720"`;
+          }
+          return `<svg ${cleaned} width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet">`;
+        });
+
+        const afterSvg = text.slice(text.indexOf('</svg>') + 6).replace(/```/g, '').trim();
+        return {
+          svg,
+          description:
+            afterSvg && afterSvg.length > 15
+              ? afterSvg.slice(0, 320)
+              : `Custom ${imageSize} (${width}×${height}) educational visual synthesized for: ${cleanStudyPhotoQuery(prompt) || prompt}.`,
+          width,
+          height,
+        };
+      }
+    } catch (err: any) {
+      console.info(`Gemini SVG synthesis (${model}) note:`, err?.message || err);
+    }
+  }
+  return null;
+}
+
 // Search & fetch real educational photos and diagrams from the internet
 app.get('/api/search-study-photos', async (req, res) => {
   try {
@@ -314,10 +409,22 @@ app.get('/api/search-study-photos', async (req, res) => {
     if (!query) {
       return res.status(400).json({ error: 'Search query q is required.' });
     }
-    const imageSize = (req.query.size as '1K' | '2K' | '4K') || '1K';
+    const imageSize = ((req.query.size as string) || '2K') as '1K' | '2K' | '4K';
     const limit = Math.min(Number(req.query.limit) || 8, 20);
-    const result = await searchInternetStudyPhotos(query, { imageSize, limit });
-    return res.json(result);
+    let result = await searchInternetStudyPhotos(query, { imageSize, limit, preferPhotos: true });
+
+    if (result.photos.length === 0) {
+      const refined = await refineStudyQueryWithGemini(query);
+      if (refined && refined.toLowerCase() !== result.queryUsed.toLowerCase()) {
+        result = await searchInternetStudyPhotos(refined, { imageSize, limit, preferPhotos: true });
+      }
+    }
+
+    return res.json({
+      ...result,
+      requestedSize: imageSize,
+      targetDimensions: getTargetPixelDimensions(imageSize, '16:9'),
+    });
   } catch (err: any) {
     console.error('Study photos GET search error:', err);
     return res.status(500).json({ error: err.message || 'Failed to search study photos.' });
@@ -326,179 +433,283 @@ app.get('/api/search-study-photos', async (req, res) => {
 
 app.post('/api/search-study-photos', async (req, res) => {
   try {
-    const { query, prompt, imageSize = '1K', limit = 8, preferPhotos = true } = req.body;
+    const { query, prompt, imageSize = '2K', limit = 8, preferPhotos = true } = req.body;
     const searchTarget = String(query || prompt || '').trim();
     if (!searchTarget) {
       return res.status(400).json({ error: 'Search query or prompt is required.' });
     }
-    const result = await searchInternetStudyPhotos(searchTarget, { imageSize, limit, preferPhotos });
-    return res.json(result);
+    const normalizedSize = (['1K', '2K', '4K'].includes(imageSize) ? imageSize : '2K') as '1K' | '2K' | '4K';
+    let result = await searchInternetStudyPhotos(searchTarget, {
+      imageSize: normalizedSize,
+      limit,
+      preferPhotos,
+    });
+
+    if (result.photos.length === 0) {
+      const refined = await refineStudyQueryWithGemini(searchTarget);
+      if (refined && refined.toLowerCase() !== result.queryUsed.toLowerCase()) {
+        result = await searchInternetStudyPhotos(refined, {
+          imageSize: normalizedSize,
+          limit,
+          preferPhotos,
+        });
+      }
+    }
+
+    return res.json({
+      ...result,
+      requestedSize: normalizedSize,
+      targetDimensions: getTargetPixelDimensions(normalizedSize, '16:9'),
+    });
   } catch (err: any) {
     console.error('Study photos POST search error:', err);
     return res.status(500).json({ error: err.message || 'Failed to search study photos.' });
   }
 });
 
-// High-Quality Image & Photo Generation with 1K, 2K, 4K resolution options for UNEB Diagrams & Internet Photos
+// Cached image proxy for Wikimedia / Wikipedia / NASA study photos (avoids browser 429 throttling on unscaled originals)
+const studyImageCache = new Map<string, { contentType: string; data: Buffer }>();
+const ALLOWED_STUDY_IMAGE_HOSTS = ['wikimedia.org', 'wikipedia.org', 'nasa.gov'];
+
+function isAllowedStudyImageUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    return (
+      parsed.protocol === 'https:' &&
+      ALLOWED_STUDY_IMAGE_HOSTS.some((host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`))
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function fetchUpstreamStudyImage(rawUrl: string): Promise<{ contentType: string; data: Buffer } | null> {
+  const cached = studyImageCache.get(rawUrl);
+  if (cached) return cached;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const upstream = await fetch(rawUrl, {
+        headers: {
+          'User-Agent': 'NexusAIStudyAssistant/1.0 (Educational Assistant for UNEB Students)',
+        },
+      });
+      if (upstream.status === 429 && attempt === 0) {
+        await new Promise((r) => setTimeout(r, 350));
+        continue;
+      }
+      if (!upstream.ok) return null;
+      const contentType = upstream.headers.get('content-type') || 'image/jpeg';
+      const data = Buffer.from(await upstream.arrayBuffer());
+      if (studyImageCache.size >= 60) {
+        const oldestKey = studyImageCache.keys().next().value;
+        if (oldestKey) studyImageCache.delete(oldestKey);
+      }
+      const entry = { contentType, data };
+      studyImageCache.set(rawUrl, entry);
+      return entry;
+    } catch {
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  return null;
+}
+
+app.get('/api/proxy-image', async (req, res) => {
+  try {
+    const rawUrl = String(req.query.url || '').trim();
+    if (!rawUrl || !isAllowedStudyImageUrl(rawUrl)) {
+      return res.status(403).json({ error: 'Untrusted or missing image host.' });
+    }
+    const fetched = await fetchUpstreamStudyImage(rawUrl);
+    if (!fetched) {
+      return res.status(502).json({ error: 'Upstream study image unavailable.' });
+    }
+    res.setHeader('Content-Type', fetched.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(fetched.data);
+  } catch (err: any) {
+    console.error('Proxy image error:', err);
+    return res.status(500).json({ error: err?.message || 'Proxy image failed.' });
+  }
+});
+
+// Secure download proxy for cross-origin study images (Wikimedia / NASA)
+app.get('/api/proxy-download', async (req, res) => {
+  try {
+    const rawUrl = String(req.query.url || '').trim();
+    const rawFilename = String(req.query.filename || 'study-photo.jpg').replace(/[^\w.-]/g, '_');
+    if (!rawUrl) {
+      return res.status(400).json({ error: 'Missing url parameter.' });
+    }
+    if (!isAllowedStudyImageUrl(rawUrl)) {
+      return res.status(403).json({ error: 'Untrusted download host.' });
+    }
+
+    const fetched = await fetchUpstreamStudyImage(rawUrl);
+    if (!fetched) {
+      return res.status(502).json({ error: 'Failed to fetch image for download.' });
+    }
+
+    res.setHeader('Content-Type', fetched.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${rawFilename}"`);
+    return res.send(fetched.data);
+  } catch (err: any) {
+    console.error('Proxy download error:', err);
+    return res.status(500).json({ error: err?.message || 'Download failed.' });
+  }
+});
+
+// High-Quality 1K, 2K, 4K Study Photo & Diagram Generation (strictly matches what student asked for)
 app.post('/api/generate-image', async (req, res) => {
   try {
     const {
       prompt,
-      imageSize = '1K', // '1K' | '2K' | '4K'
+      imageSize = '2K', // '1K' | '2K' | '4K'
       aspectRatio = '16:9',
       forceSvg = false,
       engineMode = 'internet', // 'internet' | 'ai' | 'vector'
     } = req.body;
 
-    if (!prompt) {
+    if (!prompt || !String(prompt).trim()) {
       return res.status(400).json({ error: 'Prompt is required for image generation.' });
     }
 
-    // 1. Internet Photos Engine Mode: Fetch real authentic educational photographs from the internet
-    const isPhotoIntent = engineMode === 'internet' ||
-      /\b(photo|photos|picture|pictures|photograph|real photo|real|microscope|landscape|specimen)\b/i.test(prompt);
+    const cleanPrompt = String(prompt).trim();
+    const normalizedSize = (['1K', '2K', '4K'].includes(imageSize) ? imageSize : '2K') as '1K' | '2K' | '4K';
 
-    if (isPhotoIntent && !forceSvg && engineMode !== 'vector') {
-      try {
-        const searchResult = await searchInternetStudyPhotos(prompt, { imageSize: imageSize as any, limit: 6, preferPhotos: true });
-        if (searchResult.photos && searchResult.photos.length > 0) {
-          const topPhoto = searchResult.photos[0];
-          return res.json({
-            imageUrl: topPhoto.imageUrl,
-            thumbnailUrl: topPhoto.thumbnailUrl,
-            title: topPhoto.title,
-            description: topPhoto.caption,
-            imageSize: topPhoto.resolutionTag || imageSize,
-            isInternetPhoto: true,
-            isVectorBlueprint: false,
-            sourceName: topPhoto.sourceName,
-            sourceUrl: topPhoto.sourceUrl,
-            dimensions: `${topPhoto.width} × ${topPhoto.height}`,
-            license: topPhoto.license,
-            relatedPhotos: searchResult.photos,
-            note: `Real educational study photo sourced from ${topPhoto.sourceName} in ${topPhoto.resolutionTag || imageSize} resolution.`,
-          });
-        }
-      } catch (internetErr) {
-        console.info('Internet photo search fallback note:', internetErr);
-      }
-    }
-
-    // 2. Vector Blueprint Engine Mode
+    // 1. Direct Vector Blueprint Mode
     if (forceSvg || engineMode === 'vector') {
-      const blueprint = generateUNEBDiagramSVG(prompt, imageSize as any, aspectRatio);
+      const blueprint = generateUNEBDiagramSVG(cleanPrompt, normalizedSize, aspectRatio);
       const imageUrl = `data:image/svg+xml;base64,${Buffer.from(blueprint.svg).toString('base64')}`;
       return res.json({
         imageUrl,
+        title: cleanStudyPhotoQuery(cleanPrompt) || cleanPrompt,
         description: blueprint.description,
-        imageSize,
+        imageSize: normalizedSize,
+        dimensions: `${blueprint.width} × ${blueprint.height}`,
         isVectorBlueprint: true,
         isInternetPhoto: false,
-        note: 'Vector blueprint generated to official UNEB syllabus standards.',
+        note: `Vector blueprint generated in ${normalizedSize} (${blueprint.width}×${blueprint.height}) resolution.`,
       });
     }
 
-    const enhancedPrompt = `High clarity educational textbook diagram or photograph for Uganda National Examinations Board (UNEB) curriculum: ${prompt}. Clean background, crisp typography, labeled scientific/geographic/mathematical components, conforming to official East African educational standards.`;
+    // 2. Internet Photos Mode OR AI mode when the student explicitly requests a real photo / photograph / specimen
+    const explicitlyWantsRealPhoto =
+      /\b(photo|photos|picture|pictures|photograph|photographs|microscope|landscape|specimen|aerial|satellite)\b/i.test(cleanPrompt) &&
+      !/\b(diagram|schematic|flowchart|graph|chart|circuit|punnett|parabola|theorem|cross section)\b/i.test(cleanPrompt);
 
-    let imageUrl: string | null = null;
-    let descriptionText = '';
+    if (engineMode === 'internet' || (engineMode === 'ai' && explicitlyWantsRealPhoto)) {
+      let searchResult = await searchInternetStudyPhotos(cleanPrompt, {
+        imageSize: normalizedSize,
+        limit: 8,
+        preferPhotos: true,
+      });
 
-    // Rapid Cloud Model Attempt with timeout (gemini-3-pro-image-preview)
-    const candidateModels = [
-      'gemini-3-pro-image-preview',
-      'gemini-3.1-flash-lite-image',
-    ];
-
-    for (const model of candidateModels) {
-      try {
-        const config: any = {
-          imageConfig: {
-            aspectRatio,
-          },
-        };
-
-        if (model !== 'gemini-3.1-flash-lite-image') {
-          config.imageConfig.imageSize = imageSize;
+      if (searchResult.photos.length === 0) {
+        const refined = await refineStudyQueryWithGemini(cleanPrompt);
+        if (refined) {
+          searchResult = await searchInternetStudyPhotos(refined, {
+            imageSize: normalizedSize,
+            limit: 8,
+            preferPhotos: true,
+          });
         }
+      }
 
-        const response = await runWithTimeout(
-          () =>
-            ai.models.generateContent({
-              model,
-              contents: {
-                parts: [{ text: enhancedPrompt }],
-              },
-              config,
-            }),
-          2500
-        );
-
-        for (const part of response.candidates?.[0]?.content?.parts ?? []) {
-          if (part.inlineData?.data) {
-            const mime = part.inlineData.mimeType || 'image/png';
-            imageUrl = `data:${mime};base64,${part.inlineData.data}`;
-          } else if (part.text) {
-            descriptionText += part.text;
-          }
-        }
-
-        if (imageUrl) break;
-      } catch (err: any) {
-        console.info(`Model ${model} unavailable for image generation, falling back cleanly.`);
-        break; // Fast failover
+      if (searchResult.photos && searchResult.photos.length > 0) {
+        const topPhoto = searchResult.photos[0];
+        return res.json({
+          imageUrl: topPhoto.imageUrl,
+          thumbnailUrl: topPhoto.thumbnailUrl,
+          title: topPhoto.title,
+          description: topPhoto.caption,
+          imageSize: topPhoto.resolutionTag || normalizedSize,
+          isInternetPhoto: true,
+          isVectorBlueprint: false,
+          sourceName: topPhoto.sourceName,
+          sourceUrl: topPhoto.sourceUrl,
+          dimensions: `${topPhoto.width} × ${topPhoto.height}`,
+          license: topPhoto.license,
+          relatedPhotos: searchResult.photos,
+          note: `Authentic study photo for "${searchResult.queryUsed}" from ${topPhoto.sourceName} (${topPhoto.width}×${topPhoto.height}).`,
+        });
       }
     }
 
-    if (!imageUrl) {
-      // First try fetching real internet photo matching the prompt
-      try {
-        const fallbackSearch = await searchInternetStudyPhotos(prompt, { imageSize: imageSize as any, limit: 4 });
-        if (fallbackSearch.photos.length > 0) {
-          const top = fallbackSearch.photos[0];
-          return res.json({
-            imageUrl: top.imageUrl,
-            thumbnailUrl: top.thumbnailUrl,
-            title: top.title,
-            description: top.caption,
-            imageSize: top.resolutionTag || imageSize,
-            isInternetPhoto: true,
-            isVectorBlueprint: false,
-            sourceName: top.sourceName,
-            sourceUrl: top.sourceUrl,
-            relatedPhotos: fallbackSearch.photos,
-            note: 'Authentic internet study photo retrieved from national educational archives.',
-          });
-        }
-      } catch {}
+    // 3. AI 1K/2K/4K Mode (Custom Visual / Diagram Synthesis using free-tier Gemini SVG + Internet diagram/photo search)
+    // First fetch matching internet images in parallel so the student gets visual references & gallery too
+    const [aiSvg, internetFallback] = await Promise.all([
+      generateTopicSpecificSvgWithGemini(cleanPrompt, normalizedSize, aspectRatio),
+      searchInternetStudyPhotos(cleanPrompt, {
+        imageSize: normalizedSize,
+        limit: 6,
+        preferPhotos: false,
+      }),
+    ]);
 
-      // High-definition UNEB Vector Blueprint (<50ms response)
-      const blueprint = generateUNEBDiagramSVG(prompt, imageSize as any, aspectRatio);
-      imageUrl = `data:image/svg+xml;base64,${Buffer.from(blueprint.svg).toString('base64')}`;
-      descriptionText = blueprint.description;
-
+    if (aiSvg) {
+      const imageUrl = `data:image/svg+xml;base64,${Buffer.from(aiSvg.svg).toString('base64')}`;
       return res.json({
         imageUrl,
-        description: descriptionText,
-        imageSize,
+        title: cleanStudyPhotoQuery(cleanPrompt) || cleanPrompt,
+        description: aiSvg.description,
+        imageSize: normalizedSize,
+        dimensions: `${aiSvg.width} × ${aiSvg.height}`,
         isVectorBlueprint: true,
         isInternetPhoto: false,
-        note: 'High-definition vector blueprint generated to official UNEB syllabus standards.',
+        sourceName: 'NEXUS AI Visual Synthesizer',
+        relatedPhotos: internetFallback.photos || [],
+        note: `Custom ${normalizedSize} (${aiSvg.width}×${aiSvg.height}) illustration generated for "${cleanPrompt}".`,
       });
     }
 
-    return res.json({ imageUrl, description: descriptionText, imageSize, isVectorBlueprint: false, isInternetPhoto: false });
+    // If AI synthesis didn't return an SVG, return matching internet study diagram/photo if found
+    if (internetFallback.photos && internetFallback.photos.length > 0) {
+      const top = internetFallback.photos[0];
+      return res.json({
+        imageUrl: top.imageUrl,
+        thumbnailUrl: top.thumbnailUrl,
+        title: top.title,
+        description: top.caption,
+        imageSize: top.resolutionTag || normalizedSize,
+        isInternetPhoto: true,
+        isVectorBlueprint: false,
+        sourceName: top.sourceName,
+        sourceUrl: top.sourceUrl,
+        dimensions: `${top.width} × ${top.height}`,
+        relatedPhotos: internetFallback.photos,
+        note: `Educational visual retrieved from ${top.sourceName} (${top.width}×${top.height}).`,
+      });
+    }
+
+    // Final deterministic UNEB vector blueprint fallback at requested 1K/2K/4K resolution
+    const blueprint = generateUNEBDiagramSVG(cleanPrompt, normalizedSize, aspectRatio);
+    const fallbackUrl = `data:image/svg+xml;base64,${Buffer.from(blueprint.svg).toString('base64')}`;
+    return res.json({
+      imageUrl: fallbackUrl,
+      title: cleanStudyPhotoQuery(cleanPrompt) || cleanPrompt,
+      description: blueprint.description,
+      imageSize: normalizedSize,
+      dimensions: `${blueprint.width} × ${blueprint.height}`,
+      isVectorBlueprint: true,
+      isInternetPhoto: false,
+      note: `High-definition ${normalizedSize} (${blueprint.width}×${blueprint.height}) UNEB blueprint generated.`,
+    });
   } catch (err: any) {
     console.error('Image Generation API Error:', err);
-    // Graceful fallback even if top-level try fails
     try {
-      const fallbackPrompt = req.body?.prompt || 'UNEB Concept Blueprint';
-      const fallbackSize = req.body?.imageSize || '1K';
-      const blueprint = generateUNEBDiagramSVG(fallbackPrompt, fallbackSize as any);
+      const fallbackPrompt = String(req.body?.prompt || 'UNEB Concept Blueprint');
+      const fallbackSize = (['1K', '2K', '4K'].includes(req.body?.imageSize) ? req.body.imageSize : '2K') as '1K' | '2K' | '4K';
+      const fallbackRatio = String(req.body?.aspectRatio || '16:9');
+      const blueprint = generateUNEBDiagramSVG(fallbackPrompt, fallbackSize, fallbackRatio);
       const fallbackUrl = `data:image/svg+xml;base64,${Buffer.from(blueprint.svg).toString('base64')}`;
       return res.json({
         imageUrl: fallbackUrl,
+        title: cleanStudyPhotoQuery(fallbackPrompt) || fallbackPrompt,
         description: blueprint.description,
         imageSize: fallbackSize,
+        dimensions: `${blueprint.width} × ${blueprint.height}`,
         isVectorBlueprint: true,
         isInternetPhoto: false,
       });

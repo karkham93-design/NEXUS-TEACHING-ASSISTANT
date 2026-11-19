@@ -430,6 +430,19 @@ export const ChatBot: React.FC<ChatBotProps> = ({ currentConceptContext, onNavig
                             <img
                               src={photo.thumbnailUrl || photo.imageUrl}
                               alt={photo.title}
+                              onError={(e) => {
+                                const el = e.currentTarget;
+                                if (el.dataset.fallbackStage !== 'proxy' && el.src.startsWith('https://')) {
+                                  el.dataset.fallbackStage = 'proxy';
+                                  el.src = `/api/proxy-image?url=${encodeURIComponent(el.src)}`;
+                                  return;
+                                }
+                                if (el.dataset.fallbackStage === 'done') return;
+                                el.dataset.fallbackStage = 'done';
+                                if (photo.imageUrl && el.src !== photo.imageUrl) {
+                                  el.src = photo.imageUrl;
+                                }
+                              }}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                               loading="lazy"
                             />
