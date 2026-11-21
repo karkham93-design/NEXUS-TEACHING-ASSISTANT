@@ -1,4 +1,32 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+.backdrop-blur-md {
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.backdrop-blur-xl {
+  -webkit-backdrop-filter: blur(24px);
+}
 
 /* Dark & Light Theme System */
 html.dark {
@@ -12,6 +40,17 @@ html.light {
 html.light body {
   background-color: #f8fafc;
   color: #0f172a;
+}
+
+/* Subtle architectural dot-matrix backdrop matching editorial showcase aesthetic */
+.nexus-dot-grid {
+  background-image: radial-gradient(rgba(15, 23, 42, 0.14) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+html.dark .nexus-dot-grid {
+  background-image: radial-gradient(rgba(148, 163, 184, 0.16) 1px, transparent 1px);
+  background-size: 22px 22px;
 }
 
 /* Light mode card & surface adaptations */

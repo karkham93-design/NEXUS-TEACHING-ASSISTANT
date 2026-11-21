@@ -21,7 +21,10 @@
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), 0 0 20px rgba(239, 68, 68, 0.12);
   padding: 8px;
   z-index: 50;
+  -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) rgba(0, 0, 0, 0.2);
   animation: pb-fade-in 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 

@@ -2,6 +2,7 @@
 
 import React, { isValidElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { animate, useMotionValue, useMotionValueEvent, useReducedMotion } from 'motion/react';
+import { observeElementResize } from '../utils/browserCompat';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   ArrowDown01Icon,
@@ -526,12 +527,11 @@ export default function PromptBar({
     };
     resize();
     for (let i = 0; i < 26; i += 1) spawn(true);
-    const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
+    const unobserveResize = observeElementResize(canvas, resize);
     raf = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(raf);
-      ro.disconnect();
+      unobserveResize();
       ctx.clearRect(0, 0, w, h);
     };
   }, [maxed, reduce, sparkColor]);

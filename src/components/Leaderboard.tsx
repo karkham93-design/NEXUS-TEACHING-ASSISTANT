@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { User } from 'firebase/auth';
 import { collection, onSnapshot, query, limit, getDocs } from 'firebase/firestore';
+import { safeStorageGet, safeStorageSet } from '../utils/browserCompat';
 import { db } from '../lib/firebase';
 import {
   Trophy,
@@ -65,11 +66,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
   const [isEditingGuestName, setIsEditingGuestName] = useState<boolean>(false);
   const [guestCandidateName, setGuestCandidateName] = useState<string>(() => {
     if (propGuestName) return propGuestName;
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('nexus_guest_candidate_name');
-      if (saved) return saved;
-    }
-    return 'Guest Candidate';
+    return safeStorageGet('nexus_guest_candidate_name', 'local') || 'Guest Candidate';
   });
   const [guestNameInput, setGuestNameInput] = useState<string>(guestCandidateName);
   const [localRegistryVersion, setLocalRegistryVersion] = useState<number>(0);
@@ -140,11 +137,11 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
     setGuestCandidateName(trimmed);
     setGuestNameInput(trimmed);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('nexus_guest_candidate_name', trimmed);
+      safeStorageSet('nexus_guest_candidate_name', trimmed, 'local');
 
       // Update in local guest registry
       try {
-        const stored = localStorage.getItem('nexus_guest_candidates_registry');
+        const stored = safeStorageGet('nexus_guest_candidates_registry', 'local');
         let registry: any[] = stored ? JSON.parse(stored) : [];
         const existingIdx = registry.findIndex((g: any) => g.id === 'guest_active_scholar' || g.name === guestCandidateName);
         const updatedEntry = {
@@ -162,7 +159,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
         } else {
           registry.push(updatedEntry);
         }
-        localStorage.setItem('nexus_guest_candidates_registry', JSON.stringify(registry));
+        safeStorageSet('nexus_guest_candidates_registry', JSON.stringify(registry), 'local');
       } catch (e) {
         console.warn('Guest registry update note:', e);
       }
@@ -255,7 +252,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
     // 3. Load other stored guest candidates from local registry (without artificial default points)
     if (typeof window !== 'undefined') {
       try {
-        const storedGuestsRaw = localStorage.getItem('nexus_guest_candidates_registry');
+        const storedGuestsRaw = safeStorageGet('nexus_guest_candidates_registry', 'local');
         if (storedGuestsRaw) {
           const parsed = JSON.parse(storedGuestsRaw);
           if (Array.isArray(parsed)) {

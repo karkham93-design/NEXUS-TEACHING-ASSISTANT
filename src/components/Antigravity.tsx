@@ -1,4 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
+import {
+  observeElementResize,
+  observeElementVisibility,
+  prefersReducedMotionSafe,
+} from '../utils/browserCompat';
 import './Antigravity.css';
 
 const PIXEL_BUDGET = 2.4e6;
@@ -367,7 +372,7 @@ export const Antigravity: React.FC<AntigravityProps> = ({
     const shader = gl ? link(gl) : null;
     if (!gl || !shader) return;
 
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduced = prefersReducedMotionSafe();
     const vao = gl.createVertexArray();
     gl.bindVertexArray(vao);
     const cornerBuffer = gl.createBuffer();
@@ -726,17 +731,15 @@ export const Antigravity: React.FC<AntigravityProps> = ({
     canvas.addEventListener('webglcontextlost', onLost);
     canvas.addEventListener('webglcontextrestored', onRestored);
 
-    const resizeObserver = new ResizeObserver(() => {
+    const unobserveResize = observeElementResize(container, () => {
       resize();
       wake();
     });
-    resizeObserver.observe(container);
 
-    const intersection = new IntersectionObserver(entries => {
-      visible = entries.some(entry => entry.isIntersecting);
+    const unobserveVisibility = observeElementVisibility(container, isVis => {
+      visible = isVis;
       wake();
     });
-    intersection.observe(container);
 
     const onVisibility = () => {
       pageVisible = document.visibilityState !== 'hidden';
@@ -750,8 +753,8 @@ export const Antigravity: React.FC<AntigravityProps> = ({
     return () => {
       cancelAnimationFrame(raf);
       wakeRef.current = null;
-      resizeObserver.disconnect();
-      intersection.disconnect();
+      unobserveResize();
+      unobserveVisibility();
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointerup', onPointerUp);

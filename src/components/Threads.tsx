@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
+import { observeElementResize, observeElementVisibility } from '../utils/browserCompat';
 import './Threads.css';
 
 const LINE_VERTEX = `#version 300 es
@@ -510,16 +511,14 @@ const Threads: React.FC<ThreadsProps> = ({
       wake();
     };
 
-    const resizeObserver = new ResizeObserver(resize);
-    resizeObserver.observe(container);
-    const intersection = new IntersectionObserver(entries => {
-      visible = entries.some(entry => entry.isIntersecting);
+    const unobserveResize = observeElementResize(container, resize);
+    const unobserveVisibility = observeElementVisibility(container, isVis => {
+      visible = isVis;
       if (visible) {
         last = 0;
         wake();
       }
     });
-    intersection.observe(container);
     window.addEventListener('pointermove', onPointerMove, { passive: true });
     document.documentElement.addEventListener('pointerleave', onPointerLeave);
     document.addEventListener('visibilitychange', onVisibility);
@@ -534,8 +533,8 @@ const Threads: React.FC<ThreadsProps> = ({
       alive = false;
       cancelAnimationFrame(raf);
       wakeRef.current = null;
-      resizeObserver.disconnect();
-      intersection.disconnect();
+      unobserveResize();
+      unobserveVisibility();
       window.removeEventListener('pointermove', onPointerMove);
       document.documentElement.removeEventListener('pointerleave', onPointerLeave);
       document.removeEventListener('visibilitychange', onVisibility);

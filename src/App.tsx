@@ -58,21 +58,25 @@ import { Antigravity } from './components/Antigravity';
 import Lightfall from './components/Lightfall';
 import Threads from './components/Threads';
 import BranchedMenu, { UNEB_BRANCHED_NAV_ITEMS } from './components/BranchedMenu';
+import LoginPage from './components/LoginPage';
+import { LoginTrackPreset } from './utils/authSession';
+import { safeStorageGet, safeStorageRemove, safeStorageSet } from './utils/browserCompat';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [hasEnteredWorkspace, setHasEnteredWorkspace] = useState<boolean>(() => {
+    return safeStorageGet('nexus_session_entered', 'session') === 'true';
+  });
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('nexus_theme') || localStorage.getItem('viva_theme');
-      if (saved === 'dark' || saved === 'light') return saved;
-    }
+    const saved = safeStorageGet('nexus_theme', 'local') || safeStorageGet('viva_theme', 'local');
+    if (saved === 'dark' || saved === 'light') return saved;
     return 'dark';
   });
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('nexus_theme', theme);
+      safeStorageSet('nexus_theme', theme, 'local');
       const root = document.documentElement;
       if (theme === 'dark') {
         root.classList.add('dark');
@@ -108,11 +112,7 @@ export default function App() {
 
   // Guest candidate custom name state
   const [guestCandidateName, setGuestCandidateName] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('nexus_guest_candidate_name');
-      if (saved) return saved;
-    }
-    return 'Guest Candidate';
+    return safeStorageGet('nexus_guest_candidate_name', 'local') || 'Guest Candidate';
   });
   const [showGuestNameModal, setShowGuestNameModal] = useState<boolean>(false);
   const [tempGuestNameInput, setTempGuestNameInput] = useState<string>('');
@@ -121,9 +121,9 @@ export default function App() {
     const trimmed = newName.trim() || 'Guest Candidate';
     setGuestCandidateName(trimmed);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('nexus_guest_candidate_name', trimmed);
+      safeStorageSet('nexus_guest_candidate_name', trimmed, 'local');
       try {
-        const registryRaw = localStorage.getItem('nexus_guest_candidates_registry');
+        const registryRaw = safeStorageGet('nexus_guest_candidates_registry', 'local');
         let registry: any[] = registryRaw ? JSON.parse(registryRaw) : [];
         const existingIdx = registry.findIndex((g: any) => g.id === 'guest_active_scholar' || g.name === guestCandidateName);
         const guestEntry = {
@@ -141,7 +141,7 @@ export default function App() {
         } else {
           registry.push(guestEntry);
         }
-        localStorage.setItem('nexus_guest_candidates_registry', JSON.stringify(registry));
+        safeStorageSet('nexus_guest_candidates_registry', JSON.stringify(registry), 'local');
       } catch (e) {
         console.warn('Guest registry note:', e);
       }
@@ -151,7 +151,7 @@ export default function App() {
   // Student Stats & Progress (Saved to LocalStorage for Guests + Firestore for Signed In)
   const [completedLessonIds, setCompletedLessonIds] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem('nexus_completed_lessons');
+      const saved = safeStorageGet('nexus_completed_lessons', 'local');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -161,16 +161,16 @@ export default function App() {
   // Pure real points based strictly on student question answers (2 points per question)
   const [points, setPoints] = useState<number>(() => {
     try {
-      const savedV2 = localStorage.getItem('nexus_student_points_v2');
+      const savedV2 = safeStorageGet('nexus_student_points_v2', 'local');
       if (savedV2 !== null) {
         return Math.max(0, Number(savedV2));
       }
       // Migrate legacy session that defaulted to 140
-      const completedRaw = localStorage.getItem('nexus_completed_lessons');
+      const completedRaw = safeStorageGet('nexus_completed_lessons', 'local');
       const parsedCompleted = completedRaw ? JSON.parse(completedRaw) : [];
       if (parsedCompleted.length > 0) {
         const realCalc = parsedCompleted.length * 4; // 2 questions * 2 points each
-        localStorage.setItem('nexus_student_points_v2', String(realCalc));
+        safeStorageSet('nexus_student_points_v2', String(realCalc), 'local');
         return realCalc;
       }
       return 0; // Starts at 0 real earned points
@@ -181,7 +181,7 @@ export default function App() {
 
   const [streak, setStreak] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('nexus_student_streak');
+      const saved = safeStorageGet('nexus_student_streak', 'local');
       return saved ? Math.max(1, Number(saved)) : 1;
     } catch {
       return 1;
@@ -206,14 +206,10 @@ export default function App() {
 
   // Sync to LocalStorage for persistence
   useEffect(() => {
-    try {
-      localStorage.setItem('nexus_student_points', String(points));
-      localStorage.setItem('nexus_student_points_v2', String(points));
-      localStorage.setItem('nexus_student_streak', String(streak));
-      localStorage.setItem('nexus_completed_lessons', JSON.stringify(completedLessonIds));
-    } catch (e) {
-      console.warn('LocalStorage write notice:', e);
-    }
+    safeStorageSet('nexus_student_points', String(points), 'local');
+    safeStorageSet('nexus_student_points_v2', String(points), 'local');
+    safeStorageSet('nexus_student_streak', String(streak), 'local');
+    safeStorageSet('nexus_completed_lessons', JSON.stringify(completedLessonIds), 'local');
   }, [points, streak, completedLessonIds]);
 
   // Auth listener
@@ -222,13 +218,16 @@ export default function App() {
       setCurrentUser(user);
       setAccessToken(token);
       if (user) {
-        loadUserProfile(user.uid);
+        safeStorageSet('nexus_session_entered', 'true', 'session');
+        setHasEnteredWorkspace(true);
+        loadUserProfile(user);
       }
     });
     return () => unsubscribe();
   }, []);
 
-  const loadUserProfile = async (uid: string) => {
+  const loadUserProfile = async (userObj: User) => {
+    const uid = userObj.uid;
     try {
       const userRef = doc(db, 'users', uid);
       const snap = await getDoc(userRef);
@@ -243,8 +242,8 @@ export default function App() {
       } else {
         // Initialize profile in Firestore
         await setDoc(userRef, {
-          email: currentUser?.email || '',
-          displayName: currentUser?.displayName || 'UNEB Candidate',
+          email: userObj.email || '',
+          displayName: userObj.displayName || 'UNEB Candidate',
           level: 'UCE Candidate (S.3 - S.4)',
           points,
           streak,
@@ -264,13 +263,13 @@ export default function App() {
         leaderboardDocRef,
         {
           userId: uid,
-          displayName: currentUser?.displayName || currentUser?.email?.split('@')[0] || 'UNEB Candidate',
+          displayName: userObj.displayName || userObj.email?.split('@')[0] || 'UNEB Candidate',
           department: selectedLesson.level || 'UNEB Candidate Track (NLSC)',
           courses: Math.max(completedLessonIds.length * 4, 12),
           points: userPoints,
           questionsAnswered: completedLessonIds.length * 2,
           badges: userBadges,
-          photoURL: currentUser?.photoURL || '',
+          photoURL: userObj.photoURL || '',
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
@@ -287,7 +286,9 @@ export default function App() {
       if (res) {
         setCurrentUser(res.user);
         setAccessToken(res.accessToken);
-        await loadUserProfile(res.user.uid);
+        safeStorageSet('nexus_session_entered', 'true', 'session');
+        setHasEnteredWorkspace(true);
+        await loadUserProfile(res.user);
         setShowPopupModal(false);
       }
     } catch (e: any) {
@@ -302,26 +303,44 @@ export default function App() {
     }
   };
 
+  const handleLoginPageGoogleSignIn = async (useRedirect = false, preset?: LoginTrackPreset) => {
+    if (preset) {
+      setLevelFilter(preset.levelFilter);
+      setActiveTab(preset.initialTab);
+    }
+    const res = await signInWithGoogle(Boolean(useRedirect));
+    if (res) {
+      setCurrentUser(res.user);
+      setAccessToken(res.accessToken);
+      safeStorageSet('nexus_session_entered', 'true', 'session');
+      setHasEnteredWorkspace(true);
+      await loadUserProfile(res.user);
+    }
+  };
+
+  const handleLoginPageGuestSignIn = (guestName: string, preset: LoginTrackPreset) => {
+    handleUpdateGuestName(guestName);
+    setLevelFilter(preset.levelFilter);
+    setActiveTab(preset.initialTab);
+    safeStorageSet('nexus_session_entered', 'true', 'session');
+    setHasEnteredWorkspace(true);
+  };
+
   // Instant Candidate Sign-In for environments with strict iframe popup blockers
   const handleCandidateLogin = async (customName?: string) => {
     const name = customName || candidateNameInput.trim() || 'karkham93';
-    const email = name.includes('@') ? name : `${name}@candidate.uneb.ac.ug`;
-    const mockUser: any = {
-      uid: `cand_${name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()}`,
-      displayName: name.includes('@') ? name.split('@')[0] : name,
-      email: email,
-      photoURL: null,
-    };
-    setCurrentUser(mockUser);
-    setAccessToken('candidate_token');
+    handleUpdateGuestName(name.includes('@') ? name.split('@')[0] : name);
     setShowPopupModal(false);
-    await loadUserProfile(mockUser.uid);
+    safeStorageSet('nexus_session_entered', 'true', 'session');
+    setHasEnteredWorkspace(true);
   };
 
   const handleLogout = async () => {
     await logoutUser();
     setCurrentUser(null);
     setAccessToken(null);
+    safeStorageRemove('nexus_session_entered', 'session');
+    setHasEnteredWorkspace(false);
   };
 
   // Submit Quiz evaluation and update Firestore & Leaderboard
@@ -388,8 +407,8 @@ export default function App() {
         } else {
           // If guest candidate, persist to local guest registry so candidate rank is preserved under chosen name
           try {
-            const guestName = guestCandidateName || localStorage.getItem('nexus_guest_candidate_name') || 'Guest Candidate';
-            const registryRaw = localStorage.getItem('nexus_guest_candidates_registry');
+            const guestName = guestCandidateName || safeStorageGet('nexus_guest_candidate_name', 'local') || 'Guest Candidate';
+            const registryRaw = safeStorageGet('nexus_guest_candidates_registry', 'local');
             let registry: any[] = registryRaw ? JSON.parse(registryRaw) : [];
             const existingIdx = registry.findIndex((g: any) => g.id === 'guest_active_scholar' || g.name === guestName);
             const userBadges = ['red_star'];
@@ -413,7 +432,7 @@ export default function App() {
             } else {
               registry.push(guestEntry);
             }
-            localStorage.setItem('nexus_guest_candidates_registry', JSON.stringify(registry));
+            safeStorageSet('nexus_guest_candidates_registry', JSON.stringify(registry), 'local');
           } catch (e) {
             console.warn('Guest registry note:', e);
           }
@@ -495,6 +514,16 @@ export default function App() {
       setActiveTab('leaderboard');
     }
   };
+
+  if (!hasEnteredWorkspace && !currentUser) {
+    return (
+      <LoginPage
+        defaultGuestName={guestCandidateName}
+        onGoogleSignIn={handleLoginPageGoogleSignIn}
+        onGuestSignIn={handleLoginPageGuestSignIn}
+      />
+    );
+  }
 
   return (
     <div className={`relative min-h-screen flex flex-col font-sans selection:bg-red-600 selection:text-white overflow-x-hidden transition-colors duration-200 ${
@@ -642,6 +671,14 @@ export default function App() {
                       <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
                     </svg>
                     <span>Google Sync</span>
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="p-1.5 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg text-xs"
+                    title="Return to Login Page"
+                    aria-label="Return to Login Page"
+                  >
+                    <LogOut className="w-4 h-4" />
                   </button>
                 </div>
               )}
@@ -1169,8 +1206,8 @@ export default function App() {
                 onResetPointsToReal={() => {
                   const realPts = completedLessonIds.length * 4;
                   setPoints(realPts);
-                  localStorage.setItem('nexus_student_points_v2', String(realPts));
-                  localStorage.setItem('nexus_student_points', String(realPts));
+                  safeStorageSet('nexus_student_points_v2', String(realPts), 'local');
+                  safeStorageSet('nexus_student_points', String(realPts), 'local');
                 }}
               />
             </div>

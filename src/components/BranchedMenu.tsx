@@ -1,4 +1,5 @@
 import React, { isValidElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { observeElementResize } from '../utils/browserCompat';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   BookOpen,
@@ -317,15 +318,16 @@ export default function BranchedMenu({
 
     place(true);
     let first = true;
-    const ro = new ResizeObserver(() => {
-      if (first) {
-        first = false;
-        return;
-      }
-      place(false);
-    });
-    if (navRef.current) ro.observe(navRef.current);
-    return () => ro.disconnect();
+    const unobserveResize = navRef.current
+      ? observeElementResize(navRef.current, () => {
+          if (first) {
+            first = false;
+            return;
+          }
+          place(false);
+        })
+      : () => {};
+    return () => unobserveResize();
   }, [activeSection, markerShown, items, fontSize, rowHeight]);
 
   const select = (value: string, item: any) => {

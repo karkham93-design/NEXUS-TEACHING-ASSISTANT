@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { observeElementResize, observeElementVisibility } from '../utils/browserCompat';
 import './Lightfall.css';
 
 const MAX_COLORS = 8;
@@ -719,16 +720,14 @@ const Lightfall: React.FC<LightfallProps> = ({
       wake();
     };
 
-    const resizeObserver = new ResizeObserver(resize);
-    resizeObserver.observe(container);
-    const intersection = new IntersectionObserver(entries => {
-      visible = entries.some(entry => entry.isIntersecting);
+    const unobserveResize = observeElementResize(container, resize);
+    const unobserveVisibility = observeElementVisibility(container, isVis => {
+      visible = isVis;
       if (visible) {
         last = 0;
         wake();
       }
     });
-    intersection.observe(container);
     window.addEventListener('pointermove', onPointerMove, { passive: true });
     window.addEventListener('pointerdown', onPointerDown, { passive: true });
     window.addEventListener('pointerup', onPointerUp, { passive: true });
@@ -754,8 +753,8 @@ const Lightfall: React.FC<LightfallProps> = ({
       wakeRef.current = null;
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
-      resizeObserver.disconnect();
-      intersection.disconnect();
+      unobserveResize();
+      unobserveVisibility();
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointerup', onPointerUp);
